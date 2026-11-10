@@ -34,6 +34,19 @@ export interface IoModuleInst {
   yStart: number
   xBytes: number
   yBytes: number
+  /** I/O card template (src/data/ioCards.ts) — gives connectors and pin map */
+  templateId?: string
+  /** I/O Link group (0 = first unit after the CNC), base and slot as in LADDER-III I/O Module assignment */
+  group?: number
+  base?: number
+  slot?: number
+  /** I/O Unit-MODEL A: fitted DI / DO bytes */
+  diBytes?: number
+  doBytes?: number
+  /** MOP preset applied to this card (front-panel view) */
+  mopId?: string
+  /** custom card connectors */
+  connectors?: { name: string; pins: ('DI' | 'DO' | '0V' | '24V' | '24E' | 'COM' | 'NC')[] }[]
 }
 
 export const moduleTypeById = (id: string) => IO_MODULE_TYPES.find((m) => m.id === id) ?? IO_MODULE_TYPES[IO_MODULE_TYPES.length - 1]
@@ -43,10 +56,13 @@ export function makeModule(typeId: string, i: number, role: ModuleRole, xStart: 
   return { id: `m${i + 1}`, typeId, name: name ?? t.name, role, xStart, yStart, xBytes: t.xBytes, yBytes: t.yBytes }
 }
 
-/** Default: machine-side I/O at X0–X15/Y0–Y7, operator's panel at X16–X31/Y8–Y15. */
+/**
+ * Default: machine-side connector panel module (CB104–CB107) at X0–X15/Y0–Y7 (I/O Link group 1),
+ * operator's panel module (CE56/CE57) at X16–X31/Y8–Y15 (group 0).
+ */
 export const defaultModules = (): IoModuleInst[] => [
-  makeModule('conn-basic', 0, 'machine', 0, 0, 'Machine side I/O'),
-  makeModule('op-panel', 1, 'panel', 16, 8, 'Operator\'s panel'),
+  { ...makeModule('conn-basic', 0, 'machine', 0, 0, 'Machine side I/O'), templateId: 'conn-cb', group: 1, base: 0, slot: 1 },
+  { ...makeModule('op-panel', 1, 'panel', 16, 8, 'Operator\'s panel'), templateId: 'op-ce56', group: 0, base: 0, slot: 1 },
 ]
 
 /** Next free start addresses after existing modules. */

@@ -12,9 +12,10 @@ import { StepMachine } from './StepMachine'
 import { StepOptions } from './StepOptions'
 import { StepCustom } from './StepCustom'
 import { StepIo } from './StepIo'
+import { StepCards } from './iocards/StepCards'
 import { StepSummary } from './StepSummary'
 
-const STEPS = ['Control', 'Machine', 'Options', 'Custom devices', 'I/O', 'Generate'] as const
+const STEPS = ['Control', 'Machine', 'Options', 'Custom devices', 'I/O cards', 'I/O review', 'Generate'] as const
 
 export default function BuildPage() {
   const { config, step: rawStep, setStep, reset } = useWizard()
@@ -71,8 +72,9 @@ export default function BuildPage() {
         {step === 1 && <StepMachine />}
         {step === 2 && <StepOptions />}
         {step === 3 && <StepCustom />}
-        {step === 4 && <StepIo />}
-        {step === 5 && <StepSummary onGo={setStep} />}
+        {step === 4 && <StepCards />}
+        {step === 5 && <StepIo onGo={setStep} />}
+        {step === 6 && <StepSummary onGo={setStep} />}
       </div>
 
       {/* Sticky Back / Next bar (sits above the phone bottom nav) */}

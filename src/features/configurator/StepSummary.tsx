@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react'
 import { Badge, Callout, Card, Field, Input } from '@/components/ui'
 import { generateProject, pmcOf, controlName, resolveAccessories } from '@/core/generator'
 import { machineById } from '@/data/machineTypes'
+import { mopById } from '@/data/mopPresets'
 import { DRAFT_NOTICE } from '@/lib/utils'
 import { useWizard } from './store'
 import { StepHeader } from './parts'
@@ -28,7 +29,8 @@ export function StepSummary({ onGo }: { onGo: (step: number) => void }) {
     ['PMC type', pmcOf(config).name, 0],
     ['Machine', `${machineById(config.machineId).name} · axes ${config.axes.join(' ') || '—'}${config.paths > 1 ? ` · ${config.paths} paths` : ''}`, 1],
     ['Options', `${list.length} selected${config.customDevices.length ? ` + ${config.customDevices.length} custom device${config.customDevices.length > 1 ? 's' : ''}` : ''}`, 2],
-    ['I/O', `${nX} inputs (X) · ${nY} outputs (Y) · ${config.modules.length} I/O Module${config.modules.length > 1 ? 's' : ''}`, 4],
+    ['I/O cards', `${config.modules.length} I/O Module${config.modules.length > 1 ? 's' : ''} · ${Object.keys(config.pinMap ?? {}).length} pins assigned${config.modules.some((m) => m.mopId) ? ` · MOP ${config.modules.filter((m) => m.mopId).map((m) => mopById(m.mopId)?.name).join(', ')}` : ''}`, 4],
+    ['I/O', `${nX} inputs (X) · ${nY} outputs (Y)`, 5],
     ['Messages', p.messages.length ? `${nAl} alarm${nAl === 1 ? '' : 's'} (1001…) · ${nOp} operator (2001…) · A0–A${aBytes - 1}` : 'None', 2],
   ]
 

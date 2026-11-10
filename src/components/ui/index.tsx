@@ -1,6 +1,6 @@
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { forwardRef, useEffect, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { AlertTriangle, ChevronDown, Info } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Info, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /* Big, touch-friendly controls by default (44px+ on phones). */
@@ -89,6 +89,32 @@ export function Empty({ icon, title, text, action }: { icon?: ReactNode; title: 
     <div className="flex flex-col items-center rounded-xl border border-dashed border-border px-6 py-12 text-center">
       {icon && <div className="mb-3 text-muted [&_svg]:size-8">{icon}</div>}
       <p className="font-semibold">{title}</p>{text && <p className="mt-1 max-w-sm text-sm text-muted">{text}</p>}{action && <div className="mt-4">{action}</div>}
+    </div>
+  )
+}
+
+/** Dialog: bottom sheet on phones, centred panel on larger screens. */
+export function Sheet({ open, onClose, title, subtitle, children, footer, wide }: { open: boolean; onClose: () => void; title: ReactNode; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  useEffect(() => {
+    if (!open) return
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', k)
+    const o = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = o }
+  }, [open, onClose])
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 sm:items-center sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}
+        className={cn('flex max-h-[92dvh] w-full min-w-0 flex-col rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-xl', wide ? 'sm:max-w-3xl' : 'sm:max-w-lg')}>
+        <div className="flex items-start gap-3 border-b border-border px-4 py-3">
+          <div className="min-w-0 flex-1"><h2 className="text-lg font-semibold">{title}</h2>{subtitle && <p className="text-sm text-muted">{subtitle}</p>}</div>
+          <Button size="icon" variant="ghost" className="-mr-2 shrink-0" onClick={onClose} aria-label="Close"><X /></Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">{children}</div>
+        {footer && <div className="safe-bottom border-t border-border px-4 py-3">{footer}</div>}
+      </div>
     </div>
   )
 }

@@ -53,6 +53,7 @@ export function andAny(block: Instruction[], terms: Instruction[][]): Instructio
 
 /** Byte part of a bit address: "X16.0" → "X16" */
 export const byteOf = (a: string) => a.split('.')[0]
+const nib = (n: number) => n.toString(2).padStart(4, '0')
 
 /* ================================================================== */
 /* Accessory model                                                     */
@@ -72,7 +73,7 @@ export interface SigDef {
  * ALMANY relay); 'operator' → 2000–2099 (information only). sp: also stop the spindle (*SSTP); it: also interlock axes (*IT).
  */
 export interface AlarmDef { key: string; text: string; kind: 'alarm' | 'operator'; sp?: boolean; it?: boolean }
-export interface ParamDef { key: string; label: string; unit: 'ms' | 'M' | 'count'; default: number; min?: number; max?: number }
+export interface ParamDef { key: string; label: string; unit: 'ms' | 'M' | 'count'; default: number; min?: number; max?: number; /** value = index into choices (shown as a select) */ choices?: string[] }
 export interface AccDef { inputs: SigDef[]; outputs: SigDef[]; alarms: AlarmDef[]; mcodes: { code: number; label: string; shared?: boolean }[] }
 /** has: selected options (optional — callers that only list signals may omit it; conditional messages are then left out). */
 export interface Env { axes: string[]; paths: number; p: (key: string) => number; has?: (id: string) => boolean }
@@ -112,6 +113,8 @@ export interface Ctx {
   spStop(addr: string, neg?: boolean): void
   /** relay ON while any alarm (1000–1999) is active (written by the generator) */
   alm(): string
+  /** address of any planned I/O signal by full id ("lube.LUBO"), undefined when that option is not selected */
+  ref?(id: string): string | undefined
 }
 
 export const ACCESSORY_GROUPS = ['CNC interface', 'Safety', 'Operator panel', 'Spindle', 'Axes', 'Tool changer', 'Workholding', 'Coolant & lube', 'Hydraulics/pneumatics', 'Chip handling', 'Doors', 'Automation', 'Measurement', 'Misc'] as const
@@ -318,12 +321,39 @@ export const grayToBin = (g0: number) => { let n = g0; for (let s = g0 >> 1; s; 
 /** FANUC standard 21-position feedrate override switch (%). */
 export const FEED_OVR_STEPS = [0, 1, 2, 4, 6, 8, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100, 105, 110, 120]
 export const SPINDLE_OVR_STEPS = [50, 60, 70, 80, 90, 100, 110, 120]
+/** 16-position (4-bit) feedrate override switch (%) — typical, verify against the switch. */
+export const FEED_OVR_STEPS16 = [0, 2, 4, 6, 8, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120]
+const FOV_BITS = (bits: number) => (bits === 4 ? [1, 2, 4, 8] : [1, 2, 4, 8, 16])
 
 const ax = (e: { axes: string[] }) => e.axes.slice(0, 8)
+
+/**
+ * Read a binary / Gray code switch into an R byte. When the bits are bits 0..n-1 of one X byte → MOVE with mask,
+ * otherwise (e.g. wired across bytes on an operator-panel connector) copy every bit into the R byte.
+ */
+function codeIn(c: Ctx, keys: string[], sym: string, comment: string, label: string): { raw: string; nets: NetDef[] } {
+  const raw = c.rb(sym, comment)
+  const addrs = keys.map((k) => c.x(k))
+  const aligned = addrs.every((a, i) => byteOf(a) === byteOf(addrs[0]) && a.endsWith(`.${i}`))
+  if (aligned) {
+    const mask = (1 << keys.length) - 1
+    return { raw, nets: [N(`${label}: mask switch bits 0–${keys.length - 1} (MOVE)`, [rd(ON), fn('MOVE', [nib(mask >> 4), nib(mask & 15), byteOf(addrs[0]), raw])])] }
+  }
+  return { raw, nets: addrs.map((a, i) => N(`${label}: code bit ${1 << i} (${a}) → ${raw}.${i}`, [rd(a), wrt(`${raw}.${i}`)])) }
+}
 
 /* ================================================================== */
 /* Catalog                                                             */
 /* ================================================================== */
+/** Rotary mode selector positions (k = function id). */
+export const ROT_POS = [
+  { k: 'MDI', n: 'MDI' }, { k: 'AUTO', n: 'AUTO (MEM)' }, { k: 'EDIT', n: 'EDIT' }, { k: 'DNC', n: 'DNC (RMT)' }, { k: 'JOG', n: 'JOG' },
+  { k: 'H1', n: 'HANDLE ×1' }, { k: 'H10', n: 'HANDLE ×10' }, { k: 'H100', n: 'HANDLE ×100' }, { k: 'REF', n: 'REF return' },
+]
+/** Default code → position (MP 225 selector order: EDIT, AUTO, MDI, JOG, ×1, ×10, ×100, REF — verify on the switch). */
+const ROT_DEFAULT = [2, 1, 0, 4, 5, 6, 7, 8]
+const ROVK = [{ k: 'F0', n: 'F0' }, { k: '25', n: '25 %' }, { k: '50', n: '50 %' }, { k: '100', n: '100 %' }]
+const MPK = ['1', '10', '100']
 export const ACCESSORIES: Accessory[] = [
   /* ---------------- CNC interface ---------------- */
   { id: 'mcode', group: 'CNC interface', name: 'M-code decode (MF / FIN)', required: true,
@@ -417,6 +447,27 @@ export const ACCESSORIES: Accessory[] = [
       )
       return nets
     } },
+  { id: 'moderot', group: 'Operator panel', name: 'Mode select by rotary switch (binary code 1/2/4)', conflicts: ['mode'],
+    desc: '8-position mode selector wired as code bits MODE 1 / 2 / 4. Each switch code is assigned a mode (EDIT, AUTO, MDI, DNC, JOG, HANDLE ×1/×10/×100, REF) → MD1/MD2/MD4, DNCI, ZRN (G43) and the handle multiplier MP1/MP2 (G19).',
+    params: range(8).map((k) => ({ key: `pos${k}`, label: `Switch code ${k}`, unit: 'count' as const, default: ROT_DEFAULT[k], min: 0, max: ROT_POS.length - 1, choices: ROT_POS.map((p) => p.n) })),
+    define: () => def({ inputs: [1, 2, 4].map((n, i) => inp(`MDSW${n}I`, `Mode selector code bit ${n}`, 'panel', i === 0 ? { align: 3 } : {})) }),
+    nets: (c) => {
+      const bits = [1, 2, 4].map((n) => c.x(`MDSW${n}I`))
+      const posOf = (k: number) => ROT_POS[Math.min(Math.max(0, c.p(`pos${k}`)), ROT_POS.length - 1)].k
+      const P = range(8).map((k) => c.r(`MDPOS${k}`, `Mode selector at code ${k} (${ROT_POS.find((p) => p.k === posOf(k))?.n})`))
+      const nets: NetDef[] = range(8).map((k) => N(`Mode selector code ${k} → ${ROT_POS.find((p) => p.k === posOf(k))?.n}`, [k & 1 ? rd(bits[0]) : rdn(bits[0]), k & 2 ? and(bits[1]) : andn(bits[1]), k & 4 ? and(bits[2]) : andn(bits[2]), wrt(P[k])]))
+      const any = (ks: string[]) => { const hit = range(8).filter((k) => ks.includes(posOf(k))); return hit.length ? anyOf(hit.map((k) => [rd(P[k])])) : [rd(OFF)] }
+      const H = ['H1', 'H10', 'H100']
+      nets.push(
+        N('MD1: AUTO / EDIT / JOG / REF / DNC', [...any(['AUTO', 'EDIT', 'JOG', 'REF', 'DNC']), wrt(g('MD1'))]),
+        N('MD2: EDIT', [...any(['EDIT']), wrt(g('MD2'))]),
+        N('MD4: JOG / HANDLE / REF', [...any(['JOG', 'REF', ...H]), wrt(g('MD4'))]),
+        N('DNCI: DNC operation', [...any(['DNC']), wrt(g('DNCI'))]),
+        N('ZRN: reference return', [...any(['REF']), wrt(g('ZRN'))]),
+      )
+      if (!c.has('mpgkeys')) nets.push(N('Handle multiplier MP1 (×10)', [...any(['H10']), wrt(g('MP1'))]), N('Handle multiplier MP2 (×100)', [...any(['H100']), wrt(g('MP2'))]))
+      return nets
+    } },
   { id: 'cycle', group: 'Operator panel', name: 'Cycle start / feed hold', desc: 'ST (G7.2) with all start permissives, *SP (G8.5) feed hold with every hold condition. Lamps from STL/SPL. Messages when start is inhibited, feed hold comes from an interlock, or axes are interlocked.',
     define: () => def({
       inputs: [inp('CYSTPBI', 'Cycle start push button', 'panel'), inp('FHLDPBI', 'Feed hold push button', 'panel')],
@@ -436,32 +487,52 @@ export const ACCESSORIES: Accessory[] = [
   { id: 'reset', group: 'Operator panel', name: 'External reset button', desc: 'Panel reset button → ERS (G8.7). The MDI RESET key works without this. Reset (RST F1.1) clears every latched alarm whose cause is gone.',
     define: () => def({ inputs: [inp('RSTPBI', 'External reset push button', 'panel')] }),
     nets: (c) => [N('External reset (ERS)', [rd(c.x('RSTPBI')), wrt(g('ERS'))])] },
-  { id: 'feedovr', group: 'Operator panel', name: 'Feed override (Gray code rotary switch)', desc: '5-bit Gray code switch → CODB table → *FV0–7 (G12) and jog override *JV (G10/G11). 21 positions 0–120 %. Message when 0 % in automatic operation.',
-    define: () => def({ inputs: [1, 2, 4, 8, 16].map((n, i) => inp(`OV${n}I`, `Feed override switch bit ${n} (Gray code)`, 'panel', i === 0 ? { align: 5 } : {})), alarms: [op('OVR0MS', 'FEEDRATE OVERRIDE 0%')] }),
+  { id: 'feedovr', group: 'Operator panel', name: 'Feed override (Gray code rotary switch)', desc: '4- or 5-bit Gray (or binary) code switch → CODB table → *FV0–7 (G12) and jog override *JV (G10/G11). 0–120 %. Message when 0 % in automatic operation.',
+    params: [{ key: 'bits', label: 'Switch code bits', unit: 'count', default: 5, min: 4, max: 5 }, { key: 'code', label: 'Switch code', unit: 'count', default: 0, min: 0, max: 1, choices: ['Gray code', 'Binary'] }],
+    define: (e) => def({ inputs: FOV_BITS(e.p('bits')).map((n, i) => inp(`OV${n}I`, `Feed override switch bit ${n} (${e.p('code') ? 'binary' : 'Gray code'})`, 'panel', i === 0 ? { align: FOV_BITS(e.p('bits')).length } : {})), alarms: [op('OVR0MS', 'FEEDRATE OVERRIDE 0%')] }),
     nets: (c) => {
-      const raw = c.rb('OVRAW', 'Feed override switch code (masked)')
-      const table = Array.from({ length: 32 }, (_, gc) => FEED_OVR_STEPS[Math.min(grayToBin(gc), FEED_OVR_STEPS.length - 1)])
+      const bits = FOV_BITS(c.p('bits'))
+      const { raw, nets } = codeIn(c, bits.map((n) => `OV${n}I`), 'OVRAW', 'Feed override switch code (masked)', 'Feed override')
+      const n = 1 << bits.length
+      const steps = bits.length === 4 ? FEED_OVR_STEPS16 : FEED_OVR_STEPS
+      const table = Array.from({ length: n }, (_, gc) => steps[Math.min(c.p('code') ? gc : grayToBin(gc), steps.length - 1)])
       return [
-        N('Feed override: mask switch bits 0–4 (MOVE)', [rd(ON), fn('MOVE', ['0001', '1111', byteOf(c.x('OV1I')), raw])]),
-        N('Feed override: Gray code → *FV0–7 (CODB, negative logic)', [rd(OFF), rds(ON), fn('CODB', [1, 32, raw, 'G12'], table.map((p) => 255 - p)), wrt(c.r('OVERR1', 'Feed override CODB error'))]),
-        N('Jog override: Gray code → *JV0–15 (CODB, 0.01 %)', [rd(OFF), rds(ON), fn('CODB', [2, 32, raw, 'G10'], table.map((p) => 65535 - p * 100)), wrt(c.r('OVERR2', 'Jog override CODB error'))]),
-        msg(c, [rd(g('OP')), ...[1, 2, 4, 8, 16].map((n) => andn(c.x(`OV${n}I`)))], 'OVR0MS', 'Feed override at 0 % (switch code 0) in automatic operation'),
+        ...nets,
+        N(`Feed override: ${c.p('code') ? 'binary' : 'Gray'} code → *FV0–7 (CODB, negative logic)`, [rd(OFF), rds(ON), fn('CODB', [1, n, raw, 'G12'], table.map((p) => 255 - p)), wrt(c.r('OVERR1', 'Feed override CODB error'))]),
+        N(`Jog override: ${c.p('code') ? 'binary' : 'Gray'} code → *JV0–15 (CODB, 0.01 %)`, [rd(OFF), rds(ON), fn('CODB', [2, n, raw, 'G10'], table.map((p) => 65535 - p * 100)), wrt(c.r('OVERR2', 'Jog override CODB error'))]),
+        msg(c, [rd(g('OP')), ...bits.map((b) => andn(c.x(`OV${b}I`)))], 'OVR0MS', 'Feed override at 0 % (switch code 0) in automatic operation'),
       ]
     } },
-  { id: 'spovr', group: 'Operator panel', name: 'Spindle override (rotary switch)', desc: '3-bit Gray code switch → CODB → SOV0–7 (G30), 50–120 %.',
-    define: () => def({ inputs: [1, 2, 4].map((n, i) => inp(`SOV${n}I`, `Spindle override switch bit ${n} (Gray code)`, 'panel', i === 0 ? { align: 3 } : {})) }),
+  { id: 'spovr', group: 'Operator panel', name: 'Spindle override (rotary switch)', desc: '3-bit Gray (or binary) code switch → CODB → SOV0–7 (G30), 50–120 %.',
+    params: [{ key: 'code', label: 'Switch code', unit: 'count', default: 0, min: 0, max: 1, choices: ['Gray code', 'Binary'] }],
+    define: (e) => def({ inputs: [1, 2, 4].map((n, i) => inp(`SOV${n}I`, `Spindle override switch bit ${n} (${e.p('code') ? 'binary' : 'Gray code'})`, 'panel', i === 0 ? { align: 3 } : {})) }),
     nets: (c) => {
-      const raw = c.rb('SOVRAW', 'Spindle override switch code (masked)')
-      const table = Array.from({ length: 8 }, (_, gc) => SPINDLE_OVR_STEPS[grayToBin(gc)])
+      const { raw, nets } = codeIn(c, ['SOV1I', 'SOV2I', 'SOV4I'], 'SOVRAW', 'Spindle override switch code (masked)', 'Spindle override')
+      const table = Array.from({ length: 8 }, (_, gc) => SPINDLE_OVR_STEPS[c.p('code') ? gc : grayToBin(gc)])
       return [
-        N('Spindle override: mask switch bits 0–2 (MOVE)', [rd(ON), fn('MOVE', ['0000', '0111', byteOf(c.x('SOV1I')), raw])]),
-        N('Spindle override: Gray code → SOV (CODB)', [rd(OFF), rds(ON), fn('CODB', [1, 8, raw, 'G30'], table), wrt(c.r('SOVERR', 'Spindle override CODB error'))]),
+        ...nets,
+        N(`Spindle override: ${c.p('code') ? 'binary' : 'Gray'} code → SOV (CODB)`, [rd(OFF), rds(ON), fn('CODB', [1, 8, raw, 'G30'], table), wrt(c.r('SOVERR', 'Spindle override CODB error'))]),
       ]
     } },
   { id: 'rapidovr', group: 'Operator panel', name: 'Rapid override (F0 / 25 / 50 / 100 %)', desc: 'Two switch bits → ROV1/ROV2 (G14.0/G14.1): 00 = 100 %, 01 = 50 %, 10 = 25 %, 11 = F0. Message when F0 is selected in automatic operation.',
     define: () => def({ inputs: [inp('ROV1I', 'Rapid override select bit 1', 'panel'), inp('ROV2I', 'Rapid override select bit 2', 'panel')], alarms: [op('ROVF0MS', 'RAPID OVERRIDE F0')] }),
     nets: (c) => [N('Rapid override ROV1', [rd(c.x('ROV1I')), wrt(g('ROV1'))]), N('Rapid override ROV2', [rd(c.x('ROV2I')), wrt(g('ROV2'))]),
       msg(c, [rd(g('OP')), and(c.x('ROV1I')), and(c.x('ROV2I'))], 'ROVF0MS', 'Rapid override F0 in automatic operation message')] },
+  { id: 'rapidkeys', group: 'Operator panel', name: 'Rapid override keys (F0 / 25 / 50 / 100 % with LEDs)', conflicts: ['rapidovr'],
+    desc: 'Four push buttons select the rapid override (last pressed wins, 100 % after power-on) → ROV1/ROV2 (G14). LED per key. Message when F0 is selected in automatic operation.',
+    define: () => def({ inputs: ROVK.map((r) => inp(`ROV${r.k}PBI`, `Rapid override ${r.n} push button`, 'panel')), outputs: ROVK.map((r) => out(`ROV${r.k}L`, `Rapid override ${r.n} LED`, 'panel')), alarms: [op('ROVF0MS', 'RAPID OVERRIDE F0')] }),
+    nets: (c) => {
+      const R = Object.fromEntries(ROVK.map((r) => [r.k, c.r(`ROV${r.k}R`, `Rapid override ${r.n} selected`)]))
+      const others = (k: string) => ROVK.filter((o) => o.k !== k).map((o) => andn(c.x(`ROV${o.k}PBI`)))
+      return [
+        ...ROVK.filter((r) => r.k !== '100').map((r) => N(`Rapid override ${r.n} selected (self-hold, cleared by the other keys)`, [rd(c.x(`ROV${r.k}PBI`)), or(R[r.k]), ...others(r.k), wrt(R[r.k])])),
+        N('Rapid override 100 % (none of the other keys selected)', [rdn(R.F0), andn(R['25']), andn(R['50']), wrt(R['100'])]),
+        N('ROV1: 50 % or F0', [rd(R['50']), or(R.F0), wrt(g('ROV1'))]),
+        N('ROV2: 25 % or F0', [rd(R['25']), or(R.F0), wrt(g('ROV2'))]),
+        ...ROVK.map((r) => N(`Rapid override ${r.n} LED`, [rd(R[r.k]), wrt(c.y(`ROV${r.k}L`))])),
+        msg(c, [rd(g('OP')), and(R.F0)], 'ROVF0MS', 'Rapid override F0 in automatic operation message'),
+      ]
+    } },
   { id: 'jog', group: 'Operator panel', name: 'Jog feed buttons (+J / -J, rapid)', desc: '+/- button per axis → +Jn (G100) / -Jn (G102). Direction lamps from MV/MVD. Rapid → RT (G19.7).',
     define: (e) => def({
       inputs: [...ax(e).flatMap((a) => [inp(`+${a}DIRI`, `+${a} jog push button`, 'panel'), inp(`-${a}DIRI`, `-${a} jog push button`, 'panel')]), inp('RAPIDPBI', 'Rapid traverse push button', 'panel')],
@@ -477,7 +548,7 @@ export const ACCESSORIES: Accessory[] = [
       N('Manual rapid traverse (RT)', [rd(c.x('RAPIDPBI')), wrt(g('RT'))]),
     ] },
   { id: 'mpg', group: 'Operator panel', name: 'MPG handle axis & multiplier', desc: 'Axis select switch → HS1A–HS1D (G18), multiplier ×10 / ×100 → MP1/MP2 (G19). ×1 when both OFF.',
-    define: (e) => def({ inputs: [...ax(e).map((a) => inp(`H${a}SELI`, `Handle axis select ${a}`, 'panel')), inp('MPX10I', 'Handle multiplier ×10', 'panel'), inp('MPX100I', 'Handle multiplier ×100', 'panel')] }),
+    define: (e) => def({ inputs: [...ax(e).map((a) => inp(`H${a}SELI`, `Handle axis select ${a}`, 'panel')), ...(hasOf(e, 'moderot') ? [] : [inp('MPX10I', 'Handle multiplier ×10', 'panel'), inp('MPX100I', 'Handle multiplier ×100', 'panel')])] }),
     nets: (c) => {
       const nets: NetDef[] = []
       const axs = c.axes.slice(0, 8)
@@ -485,7 +556,31 @@ export const ACCESSORIES: Accessory[] = [
         const src = axs.filter((_, i) => ((i + 1) >> bit) & 1)
         if (src.length) nets.push(N(`Handle axis select ${s}`, [...anyOf(src.map((a) => [rd(c.x(`H${a}SELI`))])), wrt(g(s))]))
       })
-      nets.push(N('Handle multiplier MP1 (×10)', [rd(c.x('MPX10I')), wrt(g('MP1'))]), N('Handle multiplier MP2 (×100)', [rd(c.x('MPX100I')), wrt(g('MP2'))]))
+      if (!c.has('moderot')) nets.push(N('Handle multiplier MP1 (×10)', [rd(c.x('MPX10I')), wrt(g('MP1'))]), N('Handle multiplier MP2 (×100)', [rd(c.x('MPX100I')), wrt(g('MP2'))]))
+      return nets
+    } },
+  { id: 'mpgkeys', group: 'Operator panel', name: 'MPG axis & multiplier keys (with LEDs)', conflicts: ['mpg'],
+    desc: 'Push buttons select the handle axis (X MPG, Z MPG…) and multiplier ×1 / ×10 / ×100 (last pressed wins) → HS1A–HS1D (G18), MP1/MP2 (G19). LED per key.',
+    define: (e) => def({
+      inputs: [...ax(e).map((a) => inp(`H${a}PBI`, `Handle axis ${a} push button`, 'panel')), ...MPK.map((m) => inp(`MPX${m}PBI`, `Handle multiplier ×${m} push button`, 'panel'))],
+      outputs: [...ax(e).map((a) => out(`H${a}L`, `Handle axis ${a} LED`, 'panel')), ...MPK.map((m) => out(`MPX${m}L`, `Handle multiplier ×${m} LED`, 'panel'))],
+    }),
+    nets: (c) => {
+      const axs = c.axes.slice(0, 8)
+      const A = axs.map((a) => c.r(`H${a}SEL`, `Handle axis ${a} selected`))
+      const M = Object.fromEntries(MPK.map((m) => [m, c.r(`MPX${m}R`, `Handle multiplier ×${m} selected`)]))
+      const nets: NetDef[] = axs.map((a, i) => N(`Handle axis ${a} selected (self-hold, cleared by the other axis keys)`, [rd(c.x(`H${a}PBI`)), or(A[i]), ...axs.filter((o) => o !== a).map((o) => andn(c.x(`H${o}PBI`))), wrt(A[i])]))
+      ;['HS1A', 'HS1B', 'HS1C', 'HS1D'].forEach((s, bit) => {
+        const src = axs.map((_, i) => i).filter((i) => ((i + 1) >> bit) & 1)
+        if (src.length) nets.push(N(`Handle axis select ${s}`, [...anyOf(src.map((i) => [rd(A[i])])), wrt(g(s))]))
+      })
+      for (const m of ['10', '100']) nets.push(N(`Handle multiplier ×${m} selected (self-hold, cleared by the other keys)`, [rd(c.x(`MPX${m}PBI`)), or(M[m]), ...MPK.filter((o) => o !== m).map((o) => andn(c.x(`MPX${o}PBI`))), wrt(M[m])]))
+      nets.push(
+        N('Handle multiplier ×1 (neither ×10 nor ×100)', [rdn(M['10']), andn(M['100']), wrt(M['1'])]),
+        N('Handle multiplier MP1 (×10)', [rd(M['10']), wrt(g('MP1'))]), N('Handle multiplier MP2 (×100)', [rd(M['100']), wrt(g('MP2'))]),
+        ...axs.map((a, i) => N(`Handle axis ${a} LED`, [rd(A[i]), wrt(c.y(`H${a}L`))])),
+        ...MPK.map((m) => N(`Handle multiplier ×${m} LED`, [rd(M[m]), wrt(c.y(`MPX${m}L`))])),
+      )
       return nets
     } },
   { id: 'prgfunc', group: 'Operator panel', name: 'Single block / Block skip / Dry run / Machine lock', desc: 'Push buttons with LEDs (toggle) → SBK G46.1, BDT1 G44.0, DRN G46.7, MLK G44.1. Messages while machine lock / dry run are ON.',
@@ -632,14 +727,15 @@ export const ACCESSORIES: Accessory[] = [
         ...(hasOf(e, 'spindle') ? [op('TMNMS', 'TURRET INDEX: SPINDLE RUNNING')] : [])],
     }),
     nets: (c) => {
-      const TF = g('TF'), cur = c.rb('TCUR', 'Turret current position'), run = spRun(c)
+      const TF = g('TF'), run = spRun(c)
+      const pos = codeIn(c, ['TPOS1I', 'TPOS2I', 'TPOS4I', 'TPOS8I'], 'TCUR', 'Turret current position', 'Turret: read position code'), cur = pos.raw
       const EQ = c.r('TEQ', 'Turret at commanded T'), BAD = c.r('TBAD', 'T-code out of range (T0 or > stations)'), BIG = c.r('TBIG', 'T-code > stations'), IDX = c.r('TIDX', 'Turret index in progress')
       const MAN = c.r('TMAN', 'Turret manual index'), DONE = c.r('TDONE', 'Turret index complete'), TO = c.r('TIDXTO', 'Turret index timeout timer')
       const PBIG = c.r('TPBIG', 'Turret position code > stations'), PERR = c.r('TPERR', 'Turret position code invalid (0 or > stations)')
       const OK = c.r('TCLOK', 'Turret clamped (confirm, not unclamping)')
       c.tdone(DONE); c.permit(c.x('TCLPI')); c.inter(c.x('TCLPI'), true)
       const nets: NetDef[] = [
-        N('Turret: read position code (MOVE bits 0–3)', [rd(ON), fn('MOVE', ['0000', '1111', byteOf(c.x('TPOS1I')), cur])]),
+        ...pos.nets,
         N('Turret: compare T-code with position (COMPB)', [rd(TF), fn('COMPB', [1001, 'F26', cur])]),
         N('Turret: in position', [rd(TF), and('R9000.0'), wrt(EQ)]),
         N('Turret: check T-code ≤ stations (COMPB)', [rd(TF), fn('COMPB', [1, c.p('stations'), 'F26'])]),

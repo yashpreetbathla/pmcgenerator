@@ -22,9 +22,18 @@ export const useWizard = create<WizardState>()(
     }),
     {
       name: 'pmcgenerator-build-wizard',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
-      migrate: () => ({ config: defaultConfig('lathe'), step: 0 }) as unknown as WizardState,
+      migrate: (old, version) => {
+        const s = old as WizardState | undefined
+        // v1 → v2: I/O Modules become I/O cards (pin tables); the I/O step moved one place to the right.
+        if (version === 1 && s?.config?.modules) {
+          const tpl: Record<string, string> = { 'conn-basic': 'conn-cb', 'conn-ext': 'conn-cb', 'op-panel': 'op-ce56' }
+          const modules = s.config.modules.map((m, i) => ({ ...m, templateId: m.templateId ?? tpl[m.typeId], group: m.group ?? (m.role === 'panel' ? 0 : i + 1), base: m.base ?? 0, slot: m.slot ?? 1 }))
+          return { config: { ...s.config, modules, pinMap: s.config.pinMap ?? {} }, step: s.step >= 4 ? s.step + 1 : s.step } as WizardState
+        }
+        return { config: defaultConfig('lathe'), step: 0 } as unknown as WizardState
+      },
     },
   ),
 )

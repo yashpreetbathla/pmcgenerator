@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Lock } from 'lucide-react'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Button, Card, Select } from '@/components/ui'
 import { ACCESSORIES, ACCESSORY_GROUPS, accParam, type Accessory } from '@/data/accessories'
 import { resolveAccessories, type BuildConfig } from '@/core/generator'
 import { useWizard } from './store'
@@ -78,10 +78,16 @@ export function StepOptions() {
                             {a.params.map((p) => (
                               <label key={p.key} className="block min-w-0">
                                 <span className="mb-1 block truncate text-xs text-muted" title={p.label}>{p.label}{p.unit === 'ms' ? ' (ms)' : ''}</span>
+                                {p.choices ? (
+                                  <Select value={accParam(a, p.key, config.params)} aria-label={p.label} onChange={(e) => setParam(a, p.key, Number(e.target.value))}>
+                                    {p.choices.map((ch, i) => <option key={ch} value={i}>{ch}</option>)}
+                                  </Select>
+                                ) : (
                                 <div className="relative">
                                   {p.unit === 'M' && <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted">M</span>}
                                   <NumInput value={accParam(a, p.key, config.params)} min={p.min} max={p.max} ariaLabel={p.label} className={p.unit === 'M' ? 'pl-7' : ''} onCommit={(v) => setParam(a, p.key, v)} />
                                 </div>
+                                )}
                               </label>
                             ))}
                           </div>

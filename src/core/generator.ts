@@ -7,6 +7,8 @@ import { parseAddress } from '@/core/types'
 import { ACCESSORIES, OFF, ON, accParam, accessoryById, and, andAny, andn, anyOf, fn, or, rd, rdn, wrt, type AccDef, type Accessory, type Ctx, type NetDef, type Side } from '@/data/accessories'
 import { CUSTOM_CONTROL_ID, PMC_TYPES, TYPICAL_NOTE, areaRanges, controlById, pmcById, stdAddr, stdByAddress, type PmcTypeSpec } from '@/data/controls'
 import { defaultModules, type IoModuleInst } from '@/data/ioModules'
+import { cardConnectors, cardTemplateById, parsePinKey, pinAddress, pinBytes, pinKey, type PinAssign } from '@/data/ioCards'
+import { PANEL_FUNCS, panelFuncById } from '@/data/panelFunctions'
 import { machineById, type MachineTypeId } from '@/data/machineTypes'
 import { uid } from '@/lib/utils'
 
@@ -40,6 +42,11 @@ export interface BuildConfig {
   modules: IoModuleInst[]
   customDevices: CustomDevice[]
   overrides: Record<string, IoOverride>
+  /**
+   * I/O card pin assignments: "<cardId>/<connector>/<S.No>" → signal id ("jog.+XDIRI"), custom label (spare signal)
+   * or none (DUMMY / unused — never auto-assigned). Cards = modules with a templateId.
+   */
+  pinMap?: Record<string, PinAssign>
 }
 
 const DEFAULT_CONTROL: Record<'T' | 'M' | 'any', string> = { T: '0i-tf-plus', M: '0i-mf-plus', any: '0i-mf-plus' }
@@ -105,21 +112,53 @@ export interface IoRow {
   overridden: boolean
   overflow?: boolean
   custom?: boolean
+  /** address comes from an I/O card pin assignment */
+  pinned?: boolean
+  /** card pin wired to this address (any row, pinned or auto-assigned) */
+  pin?: PinRef
+  /** pin-assignment problem (shown by validateIo) */
+  pinError?: string
 }
+export interface PinRef { card: string; cardName: string; conn: string; sno: number; name?: string; key: string }
 
 interface Resolved {
   list: Accessory[]
   added: string[]
   defs: Map<string, AccDef>
+  /** panel functions referenced by the pin map but missing a required option */
+  pfSkipped: string[]
 }
 
 function resolve(cfg: BuildConfig): Resolved {
-  const { list, added } = resolveAccessories(cfg.accessories)
+  const { list: catalog, added } = resolveAccessories(cfg.accessories)
+  const ids = new Set(catalog.map((a) => a.id))
+  const refd = new Set(Object.values(cfg.pinMap ?? {}).map((p) => p.sig?.split('.')[0]).filter((x): x is string => !!x && !!panelFuncById(x)))
+  const pfSkipped: string[] = []
+  const pf = PANEL_FUNCS.filter((f) => refd.has(f.id)).filter((f) => { const ok = (f.requires ?? []).every((r) => ids.has(r)); if (!ok) pfSkipped.push(f.id); return ok })
+  for (const f of pf) ids.add(f.id)
+  const list = [...catalog, ...pf]
   const defs = new Map<string, AccDef>()
-  const ids = new Set(list.map((a) => a.id))
   for (const a of list) defs.set(a.id, a.define({ axes: cfg.axes, paths: cfg.paths, p: (k) => accParam(a, k, cfg.params), has: (id) => ids.has(id) }))
-  return { list, added, defs }
+  return { list, added, defs, pfSkipped }
 }
+
+/** Cards = I/O Modules with a card template. */
+export const cardsOf = (cfg: BuildConfig) => cfg.modules.filter((m) => cardTemplateById(m.templateId))
+
+/** Every DI / DO pin of every card: address → pin, pin key → address/kind. */
+export function pinIndex(cfg: BuildConfig) {
+  const byAddr = new Map<string, PinRef>()
+  const byKey = new Map<string, { address?: string; kind: string; ref: PinRef }>()
+  for (const m of cardsOf(cfg)) for (const c of cardConnectors(m)) for (const p of c.pins) {
+    const key = pinKey(m.id, c.name, p.sno)
+    const ref: PinRef = { card: m.id, cardName: m.name, conn: c.name, sno: p.sno, name: p.name, key }
+    const address = pinAddress(m, p)
+    byKey.set(key, { address, kind: p.kind, ref })
+    if (address && !byAddr.has(address)) byAddr.set(address, ref)
+  }
+  return { byAddr, byKey }
+}
+export const pinText = (p: PinRef) => `${p.conn} / ${p.name ? `${p.name} · ` : ''}S.No ${p.sno}`
 
 /** X bytes kept for fixed CNC inputs (skip/XAE, *ESP, *DEC) — never auto-assigned. */
 export const RESERVED_X_BYTES = [4, 8, 9]
@@ -148,14 +187,55 @@ export function planIo(cfg: BuildConfig, r: Resolved = resolve(cfg)): IoRow[] {
     dev.outputs.forEach((io, i) => push('Y', i, io))
   }
 
-  const used = new Set<string>()
+  // card pins: custom-label spares become signals, signal assignments pin the address
+  const pins = pinIndex(cfg)
+  const pinned = new Map<string, { address: string; ref: PinRef }>()
+  const pinErr = new Map<string, string>()
+  const reserved: string[] = []
+  const spareSyms = new Set<string>()
+  const pinEntries = Object.entries(cfg.pinMap ?? {}).sort(([a], [b]) => pinOrder(cfg, a) - pinOrder(cfg, b))
+  const rowIds = new Map(rows.map((r) => [r.id, r]))
+  for (const [key, pa] of pinEntries) {
+    const pin = pins.byKey.get(key)
+    if (!pin?.address) continue
+    const dir = pin.kind === 'DI' ? 'X' : 'Y'
+    if (pa.none) { reserved.push(pin.address); continue }
+    if (!pa.sig) {
+      const base = tag(pa.label ?? '') || `${dir === 'X' ? 'SPI' : 'SPO'}`
+      let sym = base, n = 2
+      while (spareSyms.has(sym)) { const suf = `_${n++}`; sym = base.slice(0, 16 - suf.length) + suf }
+      spareSyms.add(sym)
+      const card = cfg.modules.find((m) => m.id === pin.ref.card)
+      const id = `pin.${key}`
+      const o = cfg.overrides[id]
+      const row: IoRow = { id, dir, key: sym, address: '', symbol: o?.symbol ?? sym, comment: o?.comment ?? (pa.label?.trim() || `Spare ${dir === 'X' ? 'input' : 'output'} ${pin.ref.conn}/${pin.ref.sno}`), group: `${card?.name ?? 'I/O card'} ${pin.ref.conn} (spare)`, side: card?.role === 'machine' ? 'machine' : 'panel', overridden: false, custom: true }
+      rows.push(row); rowIds.set(id, row)
+      pinned.set(id, { address: pin.address, ref: pin.ref })
+      continue
+    }
+    const row = rowIds.get(pa.sig)
+    if (!row) continue
+    if (row.dir !== dir) { pinErr.set(row.id, `${pinText(pin.ref)} is an ${dir === 'X' ? 'input (DI)' : 'output (DO)'} pin — ${row.symbol} is an ${row.dir === 'X' ? 'input' : 'output'}`); continue }
+    if (row.fixed && row.fixed !== pin.address) { pinErr.set(row.id, `${row.symbol} must stay on the fixed CNC input ${row.fixed} — ${pinText(pin.ref)} is ${pin.address}`); continue }
+    const prev = pinned.get(row.id)
+    if (prev) { pinErr.set(row.id, `${row.symbol} is assigned to two pins: ${pinText(prev.ref)} and ${pinText(pin.ref)}`); continue }
+    pinned.set(row.id, { address: pin.address, ref: pin.ref })
+  }
+
+  const used = new Set<string>(reserved)
   const ok = (a?: string, dir?: string) => { const p = a ? parseAddress(a) : null; return !!p && p.bit !== undefined && p.area === dir }
-  // 1. user overrides  2. fixed standard addresses
+  // 1. user overrides  2. I/O card pin assignments  3. fixed standard addresses
   for (const row of rows) {
     const o = cfg.overrides[row.id]?.address
     // invalid overrides are kept as typed so validateIo can flag them
     if (o?.trim()) { row.address = o.trim().toUpperCase(); row.overridden = true; if (ok(row.address, row.dir)) used.add(row.address) }
     else row.overridden = false
+  }
+  for (const row of rows) {
+    const e = pinErr.get(row.id)
+    if (e) row.pinError = e
+    const p = pinned.get(row.id)
+    if (!row.address && p) { row.address = p.address; row.pinned = true; used.add(p.address) }
   }
   for (const row of rows) if (!row.address && row.fixed) { row.address = row.fixed; used.add(row.fixed) }
 
@@ -168,13 +248,16 @@ export function planIo(cfg: BuildConfig, r: Resolved = resolve(cfg)): IoRow[] {
     return order.map((m) => (dir === 'X' ? [m.xStart, m.xStart + m.xBytes] : [m.yStart, m.yStart + m.yBytes]))
   }
   const find = (dir: 'X' | 'Y', side: Side, n: number): { byte: number; bit: number; overflow: boolean } => {
-    const tryRange = (s: number, e: number) => {
+    const tryRange = (s: number, e: number, pinOnly = false) => {
+      const okBit = (byte: number, bit: number) => free(dir, byte, bit) && (!pinOnly || pins.byAddr.has(`${dir}${byte}.${bit}`))
       for (let byte = s; byte < e; byte++) {
-        if (n > 1) { if ([...Array(n).keys()].every((b) => free(dir, byte, b))) return { byte, bit: 0 } }
-        else for (let bit = 0; bit < 8; bit++) if (free(dir, byte, bit)) return { byte, bit }
+        if (n > 1) { if ([...Array(n).keys()].every((b) => okBit(byte, b))) return { byte, bit: 0 } }
+        else for (let bit = 0; bit < 8; bit++) if (okBit(byte, bit)) return { byte, bit }
       }
       return null
     }
+    // 1st pass: bits wired to a real card pin, 2nd pass: anywhere in the I/O Module byte ranges
+    if (pins.byAddr.size) for (const [s, e] of ranges(side, dir)) { const f = tryRange(s, e, true); if (f) return { ...f, overflow: false } }
     for (const [s, e] of ranges(side, dir)) { const f = tryRange(s, e); if (f) return { ...f, overflow: false } }
     const end = endOf(dir)
     return { ...tryRange(end, end + 1000)!, overflow: true }
@@ -187,7 +270,56 @@ export function planIo(cfg: BuildConfig, r: Resolved = resolve(cfg)): IoRow[] {
     const f = find(row.dir, row.side, group.length > 1 ? group.length : 1)
     group.forEach((g, k) => { g.address = `${g.dir}${f.byte}.${f.bit + k}`; g.overflow = f.overflow; used.add(g.address) })
   }
+  for (const row of rows) { const p = pins.byAddr.get(row.address); if (p) row.pin = p }
   return rows
+}
+
+/** Stable order of pin keys: card order, connector order, S.No. */
+function pinOrder(cfg: BuildConfig, key: string) {
+  const { card, conn, sno } = parsePinKey(key)
+  const ci = cfg.modules.findIndex((m) => m.id === card)
+  const m = cfg.modules[ci]
+  const ki = m ? cardConnectors(m).findIndex((c) => c.name === conn) : 0
+  return (ci < 0 ? 999 : ci) * 1e6 + Math.max(ki, 0) * 1e3 + sno
+}
+
+export interface CardIssue { card?: string; pin?: string; text: string }
+
+/** Card-level problems: overlapping X / Y ranges, outside the PMC range, duplicate group/base/slot, dangling pin assignments. */
+export function validateCards(cfg: BuildConfig, pmc: PmcTypeSpec = pmcOf(cfg), rows: IoRow[] = planIo(cfg)): CardIssue[] {
+  const out: CardIssue[] = []
+  const mods = cfg.modules
+  const rng = (m: IoModuleInst, d: 'X' | 'Y') => (d === 'X' ? [m.xStart, m.xStart + m.xBytes] : [m.yStart, m.yStart + m.yBytes])
+  for (const d of ['X', 'Y'] as const) {
+    for (let i = 0; i < mods.length; i++) for (let j = i + 1; j < mods.length; j++) {
+      const [a0, a1] = rng(mods[i], d), [b0, b1] = rng(mods[j], d)
+      if (a1 > a0 && b1 > b0 && a0 < b1 && b0 < a1) out.push({ card: mods[j].id, text: `${mods[i].name} (${d}${a0}–${d}${a1 - 1}) and ${mods[j].name} (${d}${b0}–${d}${b1 - 1}) overlap — change the ${d} start of one of them` })
+    }
+    for (const m of mods) {
+      const [s0, s1] = rng(m, d)
+      if (s1 > s0 && !areaRanges(pmc, d).some((a) => s0 >= a.start && s1 <= a.start + a.size)) out.push({ card: m.id, text: `${m.name}: ${d}${s0}–${d}${s1 - 1} is outside the ${pmc.name} ${d} range` })
+    }
+  }
+  const slots = new Map<string, string>()
+  for (const m of cardsOf(cfg)) {
+    const k = `${m.group ?? 0}.${m.base ?? 0}.${m.slot ?? 1}`
+    const hit = slots.get(k)
+    if (hit) out.push({ card: m.id, text: `${m.name} and ${hit} both use group ${m.group ?? 0}, base ${m.base ?? 0}, slot ${m.slot ?? 1}` })
+    else slots.set(k, m.name)
+    const pb = pinBytes(m)
+    if (pb.x > m.xBytes || pb.y > m.yBytes) out.push({ card: m.id, text: `${m.name}: pins need ${pb.x} X / ${pb.y} Y bytes but the I/O Module has ${m.xBytes} X / ${m.yBytes} Y — increase the size` })
+  }
+  const ids = new Set(rows.map((r) => r.id))
+  const pins = pinIndex(cfg)
+  for (const [key, pa] of Object.entries(cfg.pinMap ?? {})) {
+    const pin = pins.byKey.get(key)
+    if (!pin) continue
+    if (pa.sig && !ids.has(pa.sig)) {
+      const opt = pa.sig.split('.')[0]
+      out.push({ card: pin.ref.card, pin: key, text: `${pinText(pin.ref)} "${pa.label ?? pa.sig}": its option (${accessoryById(opt)?.name ?? panelFuncById(opt)?.name ?? opt}) is not enabled — pin left free` })
+    } else if ((pa.sig || (!pa.none && pa.label)) && !pin.address) out.push({ card: pin.ref.card, pin: key, text: `${pinText(pin.ref)} is a ${pin.kind} pin — it cannot carry a signal` })
+  }
+  return out
 }
 
 /** Per-row validation messages (duplicate / invalid / outside PMC range / outside modules). */
@@ -197,7 +329,8 @@ export function validateIo(rows: IoRow[], pmc: PmcTypeSpec): Record<string, stri
   rows.forEach((r) => { byAddr.set(r.address, (byAddr.get(r.address) ?? 0) + 1); bySym.set(r.symbol, (bySym.get(r.symbol) ?? 0) + 1) })
   for (const r of rows) {
     const p = parseAddress(r.address)
-    if (!p || p.bit === undefined || p.area !== r.dir) err[r.id] = `Use an ${r.dir} bit address like ${r.dir}${r.dir === 'X' ? 10 : 2}.0`
+    if (r.pinError) err[r.id] = r.pinError
+    else if (!p || p.bit === undefined || p.area !== r.dir) err[r.id] = `Use an ${r.dir} bit address like ${r.dir}${r.dir === 'X' ? 10 : 2}.0`
     else if ((byAddr.get(r.address) ?? 0) > 1) err[r.id] = `${r.address} is used twice`
     else if (!areaRanges(pmc, r.dir).some((a) => p.byte >= a.start && p.byte < a.start + a.size)) err[r.id] = `${r.address} is outside the ${pmc.name} ${r.dir} range`
     else if (r.overflow) err[r.id] = 'No free bit in the I/O Modules — add a module'
@@ -391,6 +524,7 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
       inter: (addr, neg) => { inters.push({ addr, neg }) },
       spStop: (addr, neg) => { spStops.push({ addr, neg }) },
       alm: () => { needAlm = true; return relay('ALMANY', 'Any PMC alarm (1000–1999) active', 'Alarms') },
+      ref: (id) => rowById.get(id)?.address,
     }
   }
   const groupOf = new Map<NetDef, string>()
@@ -574,6 +708,8 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
   if (overflow.length) warnings.push(`I/O capacity exceeded: ${overflow.length} signal(s) do not fit the I/O Modules (from ${overflow[0].address}). Add an I/O Module or reduce options.`)
   const otherErr = Object.entries(errs).filter(([id]) => !rowById.get(id)?.overflow)
   if (otherErr.length) warnings.push(`I/O assignment has ${otherErr.length} problem(s): ${otherErr.slice(0, 3).map(([id, e]) => `${rowById.get(id)?.symbol}: ${e}`).join('; ')}${otherErr.length > 3 ? '…' : ''}`)
+  for (const i of validateCards(cfg, pmc, rows)) warnings.push(`I/O cards: ${i.text}`)
+  for (const f of res.pfSkipped) warnings.push(`Panel function "${panelFuncById(f)?.name}" needs option(s) ${(panelFuncById(f)?.requires ?? []).map((r) => `"${accessoryById(r)?.name ?? r}"`).join(', ')} — its pin is left free.`)
   for (const a of res.added) warnings.push(`Added "${accessoryById(a)?.name}" — required by another selected option.`)
   for (const a of res.list) for (const c of a.conflicts ?? []) if (sel.has(c) && a.id < c) warnings.push(`Conflicting options: "${a.name}" and "${accessoryById(c)?.name}" — keep only one.`)
   if (pmc.legacy) warnings.push(`${pmc.name} is a legacy PMC: G/F interface addresses differ from the i-series standard used here — re-address before use.`)
@@ -587,8 +723,7 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
   if (ctl && cfg.axes.length > ctl.maxAxes) warnings.push(`${cfg.axes.length} axes configured — ${ctl.name} typically supports ${ctl.maxAxes}.`)
   if (ctl && cfg.paths > ctl.paths) warnings.push(`${cfg.paths} paths configured — ${ctl.name} supports ${ctl.paths}.`)
   if (cfg.paths > 1) warnings.push('Multi-path: only E-stop and feed hold are duplicated for path 2 (G1008). Add path 2 logic (G1000+/F1000+) in LADDER-III.')
-  if (!sel.has('mode')) warnings.push('No mode select option — MD1/MD2/MD4 stay 0 (MDI mode). Add "Mode select" or drive G43 yourself.')
-  if (sel.has('feedovr')) { const ov = ['OV1I', 'OV2I', 'OV4I', 'OV8I', 'OV16I'].map((k) => rowById.get(`feedovr.${k}`)?.address ?? ''); if (!ov.every((a, i) => a.endsWith(`.${i}`) && a.split('.')[0] === ov[0].split('.')[0])) warnings.push('Feed override switch bits must be bits 0–4 of one X byte for the MOVE/CODB nets.') }
+  if (!sel.has('mode') && !sel.has('moderot')) warnings.push('No mode select option — MD1/MD2/MD4 stay 0 (MDI mode). Add "Mode select" or drive G43 yourself.')
   if (sel.has('overtravel')) warnings.push('System Parameter: hardware overtravel signals *+L/*-L need parameter 3004#5 (OTH) = 0.')
 
   const instructions = nets.reduce((s, n) => s + n.instructions.length, 0)
