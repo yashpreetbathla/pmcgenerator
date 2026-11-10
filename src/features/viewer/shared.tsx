@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { ArrowRight, Search, X } from 'lucide-react'
 import { Badge, Button, Input } from '@/components/ui'
 import { findRefs, groupRefs, type XRef } from '@/core/crossref'
+import type { AlarmMessage } from '@/core/types'
 import { cn } from '@/lib/utils'
 import { netLabel, type ProjectIndex } from './useProjectIndex'
 
@@ -70,7 +71,7 @@ export function RefList({ refs, idx, onJump, limit }: { refs: XRef[]; idx: Proje
 }
 
 /** Bottom sheet (phone) / floating panel (desktop) with symbol, comment and where-used for one address. */
-export function AddressSheet({ address, idx, onClose, onJump, onXref }: { address: string; idx: ProjectIndex; onClose: () => void; onJump: (netId: number) => void; onXref: (a: string) => void }) {
+export function AddressSheet({ address, idx, onClose, onJump, onXref, messages }: { address: string; idx: ProjectIndex; onClose: () => void; onJump: (netId: number) => void; onXref: (a: string) => void; messages?: AlarmMessage[] }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     addEventListener('keydown', k)
@@ -78,6 +79,7 @@ export function AddressSheet({ address, idx, onClose, onJump, onXref }: { addres
   }, [onClose])
   const sym = idx.symbols.get(address)
   const refs = findRefs(idx.xref, address)
+  const msg = messages?.find((m) => m.address === address)
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={`Address ${address}`}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -88,6 +90,12 @@ export function AddressSheet({ address, idx, onClose, onJump, onXref }: { addres
             <p className="font-mono text-2xl font-semibold">{address}</p>
             {sym?.symbol ? <p className="font-mono text-link">{sym.symbol}</p> : <p className="text-sm text-muted">No symbol defined</p>}
             {sym?.comment && <p className="mt-1 text-sm">{sym.comment}</p>}
+            {msg && (
+              <p className="mt-2 flex items-start gap-2 text-sm">
+                <Badge tone={msg.kind === 'alarm' ? 'danger' : 'warning'} className="font-mono">{msg.kind === 'alarm' ? 'Alarm' : 'Operator'} {msg.number}</Badge>
+                <span className="min-w-0 break-words font-mono">{msg.text}</span>
+              </p>
+            )}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X /></Button>
         </div>

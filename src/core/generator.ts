@@ -4,7 +4,7 @@
  */
 import type { AlarmMessage, Instruction, Net, PmcProject, SymbolEntry } from '@/core/types'
 import { parseAddress } from '@/core/types'
-import { ACCESSORIES, ON, accParam, accessoryById, and, andAny, andn, anyOf, fn, or, rd, rdn, wrt, type AccDef, type Accessory, type Ctx, type NetDef, type Side } from '@/data/accessories'
+import { ACCESSORIES, OFF, ON, accParam, accessoryById, and, andAny, andn, anyOf, fn, or, rd, rdn, wrt, type AccDef, type Accessory, type Ctx, type NetDef, type Side } from '@/data/accessories'
 import { CUSTOM_CONTROL_ID, PMC_TYPES, TYPICAL_NOTE, areaRanges, controlById, pmcById, stdAddr, stdByAddress, type PmcTypeSpec } from '@/data/controls'
 import { defaultModules, type IoModuleInst } from '@/data/ioModules'
 import { machineById, type MachineTypeId } from '@/data/machineTypes'
@@ -15,7 +15,12 @@ import { uid } from '@/lib/utils'
 /* ================================================================== */
 export interface CustomIo { symbol: string; comment: string }
 export interface CustomOutput extends CustomIo { onM?: number; offM?: number; follow?: string }
-export interface CustomAlarm { text: string; kind: 'alarm' | 'operator'; trigger?: string; when?: 'on' | 'off' }
+/**
+ * Custom device message. trigger = one of the device's input symbols (no trigger → placeholder relay).
+ * timeout (ms): the condition must persist this long (TMRB) — e.g. "clamp not confirmed within 3 s".
+ * Alarms latch until CNC reset once the cause is gone and hold the feed / inhibit cycle start; operator messages follow the condition.
+ */
+export interface CustomAlarm { text: string; kind: 'alarm' | 'operator'; trigger?: string; when?: 'on' | 'off'; timeout?: number }
 export interface CustomDevice { id: string; name: string; inputs: CustomIo[]; outputs: CustomOutput[]; alarms: CustomAlarm[] }
 export interface IoOverride { address?: string; symbol?: string; comment?: string }
 
@@ -111,7 +116,8 @@ interface Resolved {
 function resolve(cfg: BuildConfig): Resolved {
   const { list, added } = resolveAccessories(cfg.accessories)
   const defs = new Map<string, AccDef>()
-  for (const a of list) defs.set(a.id, a.define({ axes: cfg.axes, paths: cfg.paths, p: (k) => accParam(a, k, cfg.params) }))
+  const ids = new Set(list.map((a) => a.id))
+  for (const a of list) defs.set(a.id, a.define({ axes: cfg.axes, paths: cfg.paths, p: (k) => accParam(a, k, cfg.params), has: (id) => ids.has(id) }))
   return { list, added, defs }
 }
 
@@ -202,6 +208,68 @@ export function validateIo(rows: IoRow[], pmc: PmcTypeSpec): Record<string, stri
 }
 
 /* ================================================================== */
+/* Message plan (A addresses + numbers)                                */
+/* ================================================================== */
+/** Recommended maximum message length (characters) for the CNC alarm / operator message screen. */
+export const MSG_MAX = 32
+
+export interface PlannedMessage {
+  /** "<accessory>.<key>" or "cd.<device>.A<i>" */
+  id: string
+  symbol: string
+  text: string
+  kind: 'alarm' | 'operator'
+  group: string
+  address: string
+  number: number
+  sp?: boolean
+  it?: boolean
+  custom?: boolean
+}
+
+const normText = (t: string) => t.replace(/\s+/g, ' ').trim().toUpperCase()
+
+/**
+ * Deterministic message plan: alarms from A0.0 (1001, 1002…), operator messages from the next A byte (2001, 2002…).
+ * Unique ids, symbols, addresses and numbers; bits = A bits covered by DISPB.
+ */
+export function planMessages(cfg: BuildConfig, r: Resolved = resolve(cfg)): { list: PlannedMessage[]; bits: number } {
+  type M = Omit<PlannedMessage, 'address' | 'number'>
+  const src: M[] = []
+  const syms = new Set<string>()
+  const uniq = (s: string) => {
+    let out = tag(s) || 'MSG', n = 2
+    while (syms.has(out)) { const suf = `_${n++}`; out = tag(s).slice(0, 16 - suf.length) + suf }
+    syms.add(out)
+    return out
+  }
+  const ids = new Set<string>()
+  for (const a of r.list) for (const m of r.defs.get(a.id)!.alarms) {
+    const id = `${a.id}.${m.key}`
+    if (ids.has(id)) throw new Error(`${a.id}: duplicate message key ${m.key}`)
+    ids.add(id)
+    src.push({ id, symbol: uniq(m.key), text: normText(m.text), kind: m.kind, group: a.name, sp: m.sp, it: m.it })
+  }
+  cfg.customDevices.forEach((dev, d) => dev.alarms.forEach((m, i) => {
+    let id = `cd.${dev.id}.A${i}`
+    if (ids.has(id)) id = `cd.${dev.id}#${d}.A${i}`
+    ids.add(id)
+    const name = dev.name?.trim() || 'Custom device'
+    src.push({ id, symbol: uniq(`${tag(dev.name) || 'DEV'}AL${i + 1}`), text: normText(m.text || `${name} alarm ${i + 1}`), kind: m.kind === 'operator' ? 'operator' : 'alarm', group: name, custom: true })
+  }))
+  const list: PlannedMessage[] = []
+  let bit = 0
+  for (const kind of ['alarm', 'operator'] as const) {
+    if (kind === 'operator' && bit % 8) bit += 8 - (bit % 8)
+    src.filter((m) => m.kind === kind).forEach((m, i) => {
+      list.push({ ...m, address: `A${Math.floor(bit / 8)}.${bit % 8}`, number: (kind === 'alarm' ? 1000 : 2000) + i + 1 })
+      bit++
+    })
+  }
+  return { list, bits: bit }
+}
+
+/* ================================================================== */
 /* Generator                                                           */
 /* ================================================================== */
 interface Cond { addr: string; neg?: boolean }
@@ -244,26 +312,25 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
   }
 
   /* ---------- A messages ---------- */
-  type Al = { id: string; key: string; text: string; kind: 'alarm' | 'operator'; group: string }
-  const als: Al[] = []
-  for (const a of res.list) for (const m of res.defs.get(a.id)!.alarms) als.push({ id: `${a.id}.${m.key}`, key: m.key, text: m.text, kind: m.kind, group: a.name })
-  for (const dev of cfg.customDevices) dev.alarms.forEach((m, i) => als.push({ id: `cd.${dev.id}.A${i}`, key: `${tag(dev.name) || 'DEV'}AL${i + 1}`, text: (m.text || `${dev.name} alarm ${i + 1}`).toUpperCase(), kind: m.kind, group: dev.name || 'Custom device' }))
+  // Alarms first (A0.0…, numbers 1001…), operator messages from the next A byte (numbers 2001…).
+  // Order = catalog order of the options, then custom devices → deterministic, each option's messages are consecutive.
+  const plan = planMessages(cfg, res)
   const messages: AlarmMessage[] = []
   const alAddr = new Map<string, string>()
-  let aBit = 0
-  for (const kind of ['alarm', 'operator'] as const) {
-    if (kind === 'operator' && aBit % 8) aBit += 8 - (aBit % 8)
-    als.filter((m) => m.kind === kind).forEach((m, i) => {
-      const address = `A${Math.floor(aBit / 8)}.${aBit % 8}`
-      aBit++
-      alAddr.set(m.id, address)
-      messages.push({ address, number: String((kind === 'alarm' ? 1000 : 2000) + i + 1), text: m.text, kind })
-      addSym({ address, symbol: tag(m.key), comment: `${kind === 'alarm' ? 'Alarm' : 'Operator message'}: ${m.text}`, source: 'generated', group: m.group })
-    })
+  const alarmBits: { address: string; sp?: boolean; it?: boolean }[] = []
+  for (const m of plan.list) {
+    alAddr.set(m.id, m.address)
+    messages.push({ address: m.address, number: String(m.number), text: m.text, kind: m.kind })
+    addSym({ address: m.address, symbol: m.symbol, comment: `${m.kind === 'alarm' ? 'Alarm' : 'Operator message'} ${m.number}: ${m.text}`, source: m.custom ? 'custom' : 'generated', group: m.group })
+    if (m.kind === 'alarm') alarmBits.push({ address: m.address, sp: m.sp, it: m.it })
   }
-  const opCount = als.filter((m) => m.kind === 'operator').length
-  if (opCount > 100) warnings.push(`${opCount} operator messages — FANUC operator message numbers 2000–2099 allow 100. Some will display as alarms.`)
-  if (Math.ceil(aBit / 8) > (pmc.areas.find((a) => a.letter === 'A')?.size ?? 25)) warnings.push(`Message request area exceeded: ${Math.ceil(aBit / 8)} A bytes needed, ${pmc.name} has ${pmc.areas.find((a) => a.letter === 'A')?.size}.`)
+  const aBit = plan.bits
+  const aSize = pmc.areas.find((a) => a.letter === 'A')?.size ?? 25
+  const nAl = plan.list.filter((m) => m.kind === 'alarm').length, nOp = plan.list.length - nAl
+  if (nAl > 999) warnings.push(`${nAl} alarm messages — FANUC alarm numbers 1000–1999 allow 999.`)
+  if (nOp > 100) warnings.push(`${nOp} operator messages — numbers 2000–2099 show with their number, 2100–2999 show the text only.`)
+  if (Math.ceil(aBit / 8) > aSize) warnings.push(`Message request area exceeded: ${Math.ceil(aBit / 8)} A bytes needed (A0–A${Math.ceil(aBit / 8) - 1}), ${pmc.name} has ${aSize} (A0–A${aSize - 1}). Reduce options or choose a larger PMC.`)
+  for (const m of plan.list) if (m.custom && m.text.length > MSG_MAX) warnings.push(`Message ${m.number} "${m.text}" is ${m.text.length} characters — keep messages to ${MSG_MAX} for the CNC screen.`)
 
   /* ---------- registries ---------- */
   let timerNo = 0, edgeNo = 0, ctrNo = 0
@@ -284,7 +351,7 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
   const mfins = new Map<number, Cond[]>()
   const tdones: string[] = [], starts: string[] = []
   const permits: Cond[] = [], holds: Cond[] = [], inters: Cond[] = [], spStops: Cond[] = []
-  let needManual = false, needAuto = false
+  let needManual = false, needAuto = false, needAlm = false
 
   /* ---------- M-code conflicts ---------- */
   const mOwners = new Map<number, { owner: string; shared?: boolean }[]>()
@@ -323,6 +390,7 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
       hold: (addr, neg) => { holds.push({ addr, neg }) },
       inter: (addr, neg) => { inters.push({ addr, neg }) },
       spStop: (addr, neg) => { spStops.push({ addr, neg }) },
+      alm: () => { needAlm = true; return relay('ALMANY', 'Any PMC alarm (1000–1999) active', 'Alarms') },
     }
   }
   const groupOf = new Map<NetDef, string>()
@@ -361,19 +429,62 @@ export function generateProject(cfg: BuildConfig, opts: { id?: string; now?: num
       push({ comment: `${name}: ${row.symbol} output`, ins: [...anyOf(terms), wrt(row.address)] })
     })
     dev.alarms.forEach((m, i) => {
-      const a = alAddr.get(`cd.${dev.id}.A${i}`)!
+      const a = alAddr.get(`cd.${dev.id}.A${i}`)
+      if (!a) return
+      const label = `${name}: ${m.kind === 'alarm' ? 'alarm' : 'message'} ${i + 1}`
       const t = inAddr(m.trigger)
-      if (t) push({ comment: `${name}: ${m.kind === 'alarm' ? 'alarm' : 'message'} ${i + 1}`, ins: [m.when === 'off' ? rdn(t) : rd(t), wrt(a)] })
+      let cond: Instruction[]
+      if (t) cond = [m.when === 'off' ? rdn(t) : rd(t)]
       else {
         const cmd = relay(`${base}AL${i + 1}R`, `${name} alarm ${i + 1} condition (add your logic)`, name)
-        push({ comment: `${name}: ${m.kind === 'alarm' ? 'alarm' : 'message'} ${i + 1} (placeholder condition)`, ins: [rd(cmd), wrt(a)] })
+        cond = [rd(cmd)]
+        if (m.trigger?.trim()) warnings.push(`Custom device "${name}": message ${i + 1} trigger "${m.trigger}" is not one of its inputs — placeholder relay ${cmd} used.`)
       }
+      const ms = Math.round(Number(m.timeout) || 0)
+      if (ms > 0) {
+        const T = relay(`${base}AL${i + 1}T`, `${name} message ${i + 1} delay timer (${ms} ms)`, name)
+        push({ comment: `${label}: condition for ${ms} ms (TMRB)`, ins: [...cond, fn('TMRB', [++timerNo, ms]), wrt(T)] })
+        cond = [rd(T)]
+      }
+      if (m.kind === 'alarm') push({ comment: `${label} (latched until reset)${t ? '' : ' — placeholder condition'}`, ins: [...cond, or(a), andn(stdAddr('RST')), wrt(a)] })
+      else push({ comment: `${label}${t ? '' : ' (placeholder condition)'}`, ins: [...cond, wrt(a)] })
     })
   }
 
   /* ---------- CNC interface (collectors) ---------- */
   const g = stdAddr
   const iface: NetDef[] = []
+
+  // Undefined M-code: MF with none of the decoded M-codes ON (DECB) → latched alarm.
+  const mUnd = alAddr.get('mcode.MUNDAL')
+  if (mUnd) {
+    const T = relay('MUNDT', 'Undefined M-code delay timer', 'M-code decode')
+    iface.push({ comment: 'Undefined M-code: MF with no decoded M-code (debounce)', ins: [rd(g('MF')), ...[...mDec.keys()].sort((a, b) => a - b).map((c) => andn(mDec.get(c)!)), fn('TMRB', [++timerNo, 100]), wrt(T)] })
+    iface.push({ comment: 'Undefined M-code alarm (latched until reset)', ins: [rd(T), or(mUnd), andn(g('RST')), wrt(mUnd)] })
+  }
+  // Shared alarm logic: any alarm → feed hold + cycle start inhibit; flagged alarms also stop the spindle / interlock axes.
+  if (alarmBits.length || needAlm) {
+    const ANY = relay('ALMANY', 'Any PMC alarm (1000–1999) active', 'Alarms')
+    iface.push({ comment: 'Any PMC alarm active (1000–1999) → feed hold, cycle start inhibit', ins: [...(alarmBits.length ? anyOf(alarmBits.map((b) => [rd(b.address)])) : [rd(OFF)]), wrt(ANY)] })
+    if (alarmBits.length) { holds.push({ addr: ANY }); permits.push({ addr: ANY, neg: true }) }
+    const sp = alarmBits.filter((b) => b.sp), it = alarmBits.filter((b) => b.it)
+    if (sp.length) {
+      const SP = relay('ALMSP', 'Spindle-stop alarm active', 'Alarms')
+      iface.push({ comment: 'Spindle-stop alarms active → *SSTP', ins: [...anyOf(sp.map((b) => [rd(b.address)])), wrt(SP)] })
+      spStops.push({ addr: SP })
+    }
+    if (it.length) {
+      const IT = relay('ALMIT', 'Axis-interlock alarm active', 'Alarms')
+      iface.push({ comment: 'Axis-interlock alarms active → *IT', ins: [...anyOf(it.map((b) => [rd(b.address)])), wrt(IT)] })
+      inters.push({ addr: IT })
+    }
+  }
+  // Cycle start pressed while a permissive is missing → operator message.
+  const stIn = alAddr.get('cycle.STINMS')
+  if (stIn) {
+    const missing = permits.map((p) => [p.neg ? rd(p.addr) : rdn(p.addr)])
+    iface.push({ comment: 'Cycle start inhibited message (start pressed, a start permissive is missing)', ins: starts.length && missing.length ? [...andAny(anyOf(starts.map((s) => [rd(s)])), missing), wrt(stIn)] : [rd(OFF), wrt(stIn)] })
+  }
   const condIns = (c: Cond, active: boolean) => (c.neg !== active ? andn(c.addr) : and(c.addr))
   // permit: AND addr (neg → AND.NOT). hold/inter/stop: active when addr ON (neg → OFF) ⇒ AND.NOT addr (neg → AND addr)
   if (starts.length) iface.push({ comment: 'ST cycle start (with start permissives)', ins: [...anyOf(starts.map((s) => [rd(s)])), ...permits.map((p) => (p.neg ? andn(p.addr) : and(p.addr))), wrt(g('ST'))] })

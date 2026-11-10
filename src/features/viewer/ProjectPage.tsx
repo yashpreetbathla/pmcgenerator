@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ChevronDown, Download, FileJson, FileSearch, FileText, Table } from 'lucide-react'
+import { ChevronDown, Cpu, Download, FileJson, FileSearch, FileText, Table, X } from 'lucide-react'
 import { Badge, Button, Callout, Empty, Tabs } from '@/components/ui'
 import { LadderContext } from '@/components/ladder/context'
 import { exportBaseName, messagesCsv, mnemonicText, projectJson, symbolsCsv } from '@/core/export'
+import { encodePmcBinary, EXPERIMENTAL_WARNING, type EncodeResult } from '@/core/encoder'
 import type { PmcProject } from '@/core/types'
 import { DRAFT_NOTICE, saveFile } from '@/lib/utils'
 import { useProjects } from '@/store/projects'
@@ -85,7 +86,7 @@ function ProjectView({ p }: { p: PmcProject }) {
 
         <div className="min-w-0">
           {tab === 'title' && <TitleTab p={p} />}
-          {tab === 'ladder' && <LadderTab idx={idx} focus={focus} />}
+          {tab === 'ladder' && <LadderTab idx={idx} focus={focus} messages={p.messages} />}
           {tab === 'symbols' && <SymbolsTab p={p} idx={idx} onAddress={setSheet} />}
           {tab === 'messages' && <MessagesTab p={p} onAddress={setSheet} />}
           {tab === 'io' && <IoMapTab p={p} idx={idx} onAddress={setSheet} />}
@@ -93,13 +94,14 @@ function ProjectView({ p }: { p: PmcProject }) {
           {tab === 'params' && <ParamsTab p={p} />}
         </div>
       </div>
-      {sheet && <AddressSheet address={sheet} idx={idx} onClose={() => setSheet(undefined)} onJump={jump} onXref={openXref} />}
+      {sheet && <AddressSheet address={sheet} idx={idx} onClose={() => setSheet(undefined)} onJump={jump} onXref={openXref} messages={p.messages} />}
     </LadderContext.Provider>
   )
 }
 
 function ExportMenu({ p }: { p: PmcProject }) {
   const [open, setOpen] = useState(false)
+  const [pmcSheet, setPmcSheet] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -120,6 +122,7 @@ function ExportMenu({ p }: { p: PmcProject }) {
     }
   }
   const options = [
+    { icon: Cpu, label: 'PMC (memory card)', hint: '.000', disabled: !p.nets.length, go: () => { setOpen(false); setPmcSheet(true) } },
     { icon: Table, label: 'Symbol Comment', hint: 'CSV', disabled: !p.symbols.length, go: () => run(() => symbolsCsv(p), `${base}_symbols.csv`, 'text/csv') },
     { icon: Table, label: 'Messages', hint: 'CSV', disabled: !p.messages.length, go: () => run(() => messagesCsv(p), `${base}_messages.csv`, 'text/csv') },
     { icon: FileText, label: 'Mnemonic list', hint: 'TXT', disabled: !p.nets.length, go: () => run(() => mnemonicText(p), `${base}_mnemonic.txt`, 'text/plain') },
@@ -138,6 +141,66 @@ function ExportMenu({ p }: { p: PmcProject }) {
           ))}
         </div>
       )}
+      {pmcSheet && <PmcExportSheet p={p} onClose={() => setPmcSheet(false)} />}
+    </div>
+  )
+}
+
+/** Confirm sheet for the FANUC memory-card binary (.000) export. Encoding runs locally in the browser. */
+function PmcExportSheet({ p, onClose }: { p: PmcProject; onClose: () => void }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    addEventListener('keydown', k)
+    return () => removeEventListener('keydown', k)
+  }, [onClose])
+  const res = useMemo((): EncodeResult | { error: string } => {
+    try { return encodePmcBinary(p) } catch (e) { return { error: (e as Error).message } }
+  }, [p])
+  const ok = 'bytes' in res
+  const orig = p.info.fileName && /\.\d{3}$/.test(p.info.fileName) ? p.info.fileName : 'PMC1.000'
+  const file = ok && res.exact ? orig : `${exportBaseName(p)}.000`
+  const notes = ok ? res.warnings.filter((w) => w !== EXPERIMENTAL_WARNING) : []
+  const save = async () => {
+    if (!ok) return
+    try {
+      const r = await saveFile(new Blob([new Uint8Array(res.bytes)], { type: 'application/octet-stream' }), file, 'application/octet-stream')
+      if (r !== 'cancelled') { toast.success(r === 'shared' ? `Shared ${file}` : `Saved ${file}`); onClose() }
+    } catch {
+      toast.error('Could not save the file')
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Export PMC memory-card file">
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="safe-bottom relative max-h-[85dvh] w-full space-y-3 overflow-y-auto rounded-t-2xl border border-border bg-surface p-4 shadow-xl sm:max-w-lg sm:rounded-2xl">
+        <div className="mx-auto h-1 w-10 rounded-full bg-border sm:hidden" />
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-semibold">PMC memory-card file</p>
+            <p className="break-all font-mono text-sm text-muted">{file} · FANUC 0i-D PMC/L layout</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X /></Button>
+        </div>
+        {!ok ? (
+          <Callout tone="warning" title="Cannot build this file">{res.error}</Callout>
+        ) : res.exact ? (
+          <Callout title="Exact copy">Byte-for-byte identical to the backup you opened (verified). Safe to use as a copy of that file.</Callout>
+        ) : (
+          <Callout tone="warning" title="Experimental">
+            {p.source ? 'This project was changed since it was decoded, so the file is rebuilt. ' : p.origin === 'decoded' ? 'Re-open the original backup file to enable an exact copy. ' : ''}
+            {EXPERIMENTAL_WARNING.replace(/^Experimental: /, '').replace(/^./, (c) => c.toUpperCase())} A 68-byte header block is not understood yet{p.source ? ' (kept from your original file)' : ' and is left empty, and I/O assignment tables are not written'}.
+          </Callout>
+        )}
+        {notes.length > 0 && <ul className="list-disc space-y-1 pl-5 text-sm text-muted">{notes.map((w) => <li key={w}>{w}</li>)}</ul>}
+        <div className="space-y-1.5 text-sm">
+          <p>Open it in FANUC LADDER-III with <span className="font-medium">File → Import</span> and choose the memory-card file format, then compare it with your original program.</p>
+          <p className="text-muted">{DRAFT_NOTICE} Never load an unverified file on a machine.</p>
+        </div>
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!ok} onClick={save}><Download /> Save {file}</Button>
+        </div>
+      </div>
     </div>
   )
 }

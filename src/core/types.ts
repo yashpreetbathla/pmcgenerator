@@ -90,6 +90,27 @@ export interface PmcProject {
   /** Non-fatal decoder/generator notes shown to the user. */
   warnings: string[]
   stats: { nets: number; instructions: number; unknownWords: number }
+  /**
+   * Optional: opaque parts of the memory-card file this project was decoded from, kept LOCALLY so
+   * "Export PMC (.000)" can rebuild a byte-identical copy. Never contains data from any other file.
+   */
+  source?: PmcBinarySource
+}
+
+/** Passthrough data captured by the decoder (see core/pmcLayout.ts). All fields except format/fingerprint optional. */
+export interface PmcBinarySource {
+  format: 'fanucrom-0iD-PMCL'
+  /** base64 of file bytes 0x0000–0x21A0: FANUCROM + PMC header (incl. unknown 68-byte block), memory map, I/O tables */
+  header?: string
+  /** base64 of the raw 256-byte title block */
+  title?: string
+  /** raw message strings per A-bit index ("1001 NEED ZERO RETURN"), incl. number-only entries the viewer hides */
+  messages?: [number, string][]
+  /** raw addresses of symbol records that have neither symbol nor comment (hidden by the viewer) */
+  blankSymbols?: number[]
+  fileSize: number
+  /** FNV-1a 32 of the original file — an export matching it is a verified exact copy */
+  fingerprint: string
 }
 
 export function formatAddress(a: PmcAddress): string {

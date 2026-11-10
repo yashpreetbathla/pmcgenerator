@@ -4,6 +4,7 @@
  */
 import type { AlarmMessage, Instruction, MemoryArea, Net, PmcProject, SymbolEntry, BasicOp } from './types'
 import { subName } from './subs'
+import { captureSource, readLayout } from './pmcLayout'
 
 interface MapRec { letter: string; off: number; seg: number; size: number; start: number }
 
@@ -47,7 +48,8 @@ export function decodePmcBackup(buf: ArrayBuffer | Uint8Array, fileName = 'backu
   if (!mp.length) throw new PmcDecodeError('Memory map not found — this PMC type/layout is not supported yet.')
 
   const fmtAddr = (area: number, lo: number, bit = true, alias = false): string => {
-    const seg = area >> 3, byte = lo >> 3, b = lo & 7
+    // area low 3 bits extend the bit address (needed above 8 KiB, e.g. E8192+)
+    const seg = area >> 3, byte = (((area & 7) << 16) | lo) >> 3, b = lo & 7
     let best: MapRec | undefined
     for (const m of mp) {
       if (m.seg === seg && m.letter !== 'L' && m.letter !== 'P' && m.off <= byte && byte < m.off + m.size) {
@@ -68,25 +70,39 @@ export function decodePmcBackup(buf: ArrayBuffer | Uint8Array, fileName = 'backu
     ladderVersion: field(96), date: field(134, 20), memo: title.slice(160).replace(/\s{2,}/g, ' ').trim(), fileName, fileSize: d.length,
   }
 
-  /* ---------- symbols: [name16][commentOffset][address of NEXT record] ---------- */
-  const recs: { name: string; c: number; a: number }[] = []
-  o = 0x4ea4
-  while (o + 24 <= d.length && d.subarray(o, o + 16).every(isPrint)) {
-    recs.push({ name: latin1(d.subarray(o, o + 16)).trim(), c: u32(o + 16), a: u32(o + 20) }); o += 24
-  }
-  const syms = recs.slice(1).map((r, i) => ({ name: r.name, c: r.c, raw: recs[i].a }))
+  // Prefer the PMC header's section pointers; fall back to content heuristics for files that don't match the layout.
+  const lay = readLayout(d)
+  let syms: { name: string; c: number; raw: number }[], commentBlock: string, codeStart: number, codeEnd: number
+  if (lay) {
+    /* ---------- symbols: [address u32][name 16][commentOffset u32] ---------- */
+    syms = Array.from({ length: lay.symCount }, (_, k) => {
+      const r = lay.symStart + 24 * k
+      return { raw: u32(r), name: latin1(d.subarray(r + 4, r + 20)).trim(), c: u32(r + 20) }
+    })
+    commentBlock = latin1(d.subarray(...lay.comments)).split('').reverse().join('')
+    ;[codeStart, codeEnd] = lay.code
+  } else {
+    /* ---------- symbols: [name16][commentOffset][address of NEXT record] ---------- */
+    const recs: { name: string; c: number; a: number }[] = []
+    o = 0x4ea4
+    while (o + 24 <= d.length && d.subarray(o, o + 16).every(isPrint)) {
+      recs.push({ name: latin1(d.subarray(o, o + 16)).trim(), c: u32(o + 16), a: u32(o + 20) }); o += 24
+    }
+    syms = recs.slice(1).map((r, i) => ({ name: r.name, c: r.c, raw: recs[i].a }))
 
-  /* ---------- comment block: longest reversed printable run before ladder code ---------- */
-  let bestRun = { s: 0, e: 0 }, runStart = -1
-  const scanFrom = Math.min(0xf100, d.length), scanTo = Math.min(0x18500, d.length)
-  for (let k = scanFrom; k <= scanTo; k++) {
-    const p = k < scanTo && isPrint(d[k])
-    if (p && runStart < 0) runStart = k
-    if (!p && runStart >= 0) { if (k - runStart > bestRun.e - bestRun.s) bestRun = { s: runStart, e: k }; runStart = -1 }
+    /* ---------- comment block: longest reversed printable run before ladder code ---------- */
+    let bestRun = { s: 0, e: 0 }, runStart = -1
+    const scanFrom = Math.min(0xf100, d.length), scanTo = Math.min(0x18500, d.length)
+    for (let k = scanFrom; k <= scanTo; k++) {
+      const p = k < scanTo && isPrint(d[k])
+      if (p && runStart < 0) runStart = k
+      if (!p && runStart >= 0) { if (k - runStart > bestRun.e - bestRun.s) bestRun = { s: runStart, e: k }; runStart = -1 }
+    }
+    // Last byte of the run is the first ladder word's low byte → code starts at e-1 aligned.
+    commentBlock = latin1(d.subarray(bestRun.s, bestRun.e)).split('').reverse().join('').slice(1)
+    codeStart = (bestRun.e - 1) & ~3
+    codeEnd = Math.min(d.length, 0x18500)
   }
-  // Last byte of the run is the first ladder word's low byte → code starts at e-1 aligned.
-  const commentBlock = latin1(d.subarray(bestRun.s, bestRun.e)).split('').reverse().join('').slice(1)
-  const codeStart = (bestRun.e - 1) & ~3
 
   const symbols: SymbolEntry[] = []
   syms.forEach((s, i) => {
@@ -97,13 +113,14 @@ export function decodePmcBackup(buf: ArrayBuffer | Uint8Array, fileName = 'backu
 
   /* ---------- messages (A area) ---------- */
   const messages: AlarmMessage[] = []
-  const mStart = indexOf(d, enc(')2.21A('), 0) // fallback anchor
-  const mEnd = indexOf(d, enc('10010001'), Math.max(0, mStart)) + 8
-  const firstFF = (() => { let k = 0x4400; while (k < d.length && d[k] === 0xff) k++; return k })()
-  if (mEnd > 8 && firstFF < mEnd) {
+  const mStart = lay ? -1 : indexOf(d, enc(')2.21A('), 0) // fallback anchor
+  const mEnd = lay ? lay.msgText[1] : indexOf(d, enc('10010001'), Math.max(0, mStart)) + 8
+  const firstFF = lay ? lay.msgText[0] : (() => { let k = 0x4400; while (k < d.length && d[k] === 0xff) k++; return k })()
+  if (lay ? mEnd > firstFF : mEnd > 8 && firstFF < mEnd) {
     const block = latin1(d.subarray(firstFF, mEnd)).split('').reverse().join('')
     const idx: number[] = []
-    for (let k = 0; k < 2000; k++) idx.push(u32(0x22a0 + 4 * k))
+    for (let k = 0; k < (lay ? lay.aBits : 2000); k++) idx.push(u32((lay ? lay.msgIndex : 0x22a0) + 4 * k))
+    if (lay) idx.push(block.length)
     for (let n = 0; n + 1 < idx.length && idx[n + 1] >= idx[n] && idx[n] < block.length; n++) {
       const t = block.slice(idx[n], idx[n + 1])
       const text = t.slice(4).trim()
@@ -116,7 +133,7 @@ export function decodePmcBackup(buf: ArrayBuffer | Uint8Array, fileName = 'backu
   let level: Net['level'] = 1, cur: Instruction[] = [], newNet = true, unknownWords = 0, count = 0
   const flush = () => { if (cur.length) nets.push({ id: nets.length + 1, level, instructions: cur }); cur = [] }
   o = codeStart
-  const end = Math.min(d.length, 0x18500)
+  const end = codeEnd
   while (o + 4 <= end) {
     const w = u32(o), b3 = w >>> 24, area = ((b3 & 3) << 8) | ((w >>> 16) & 0xff), lo = w & 0xffff
     if (b3 & 0x80 && b3 !== 0xff) {
@@ -161,6 +178,7 @@ export function decodePmcBackup(buf: ArrayBuffer | Uint8Array, fileName = 'backu
     id: `dec_${Date.now().toString(36)}`, name: info.machine || fileName, origin: 'decoded', createdAt: Date.now(),
     info, memoryMap, symbols, messages, nets, warnings,
     stats: { nets: nets.length, instructions: count, unknownWords },
+    ...(unknownWords ? {} : { source: captureSource(d) }),
   }
 }
 

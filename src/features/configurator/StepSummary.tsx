@@ -19,6 +19,9 @@ export function StepSummary({ onGo }: { onGo: (step: number) => void }) {
   const nY = p.symbols.filter((s) => s.address.startsWith('Y')).length
   const mcodes = p.symbols.filter((s) => s.group === 'M-code decode' && /^M\d+$/.test(s.symbol)).map((s) => s.symbol)
   const notes = p.warnings.slice(2)
+  const nAl = p.messages.filter((m) => m.kind === 'alarm').length
+  const nOp = p.messages.length - nAl
+  const aBytes = p.messages.reduce((m, x) => Math.max(m, Number(x.address.slice(1).split('.')[0]) + 1), 0)
 
   const rows: [string, ReactNode, number][] = [
     ['Control', controlName(config), 0],
@@ -26,6 +29,7 @@ export function StepSummary({ onGo }: { onGo: (step: number) => void }) {
     ['Machine', `${machineById(config.machineId).name} · axes ${config.axes.join(' ') || '—'}${config.paths > 1 ? ` · ${config.paths} paths` : ''}`, 1],
     ['Options', `${list.length} selected${config.customDevices.length ? ` + ${config.customDevices.length} custom device${config.customDevices.length > 1 ? 's' : ''}` : ''}`, 2],
     ['I/O', `${nX} inputs (X) · ${nY} outputs (Y) · ${config.modules.length} I/O Module${config.modules.length > 1 ? 's' : ''}`, 4],
+    ['Messages', p.messages.length ? `${nAl} alarm${nAl === 1 ? '' : 's'} (1001…) · ${nOp} operator (2001…) · A0–A${aBytes - 1}` : 'None', 2],
   ]
 
   return (
