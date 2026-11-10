@@ -1,0 +1,89 @@
+import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { cva, type VariantProps } from 'class-variance-authority'
+import { AlertTriangle, Info } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+/* Big, touch-friendly controls by default (44px+ on phones). */
+export const buttonVariants = cva(
+  'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none select-none [&_svg]:size-4 [&_svg]:shrink-0',
+  {
+    variants: {
+      variant: {
+        primary: 'bg-accent text-white hover:bg-accent/90 shadow-sm',
+        secondary: 'bg-surface border border-border text-fg hover:bg-surface-2',
+        ghost: 'text-fg hover:bg-surface-2',
+        danger: 'bg-danger text-white hover:bg-danger/90',
+      },
+      size: { sm: 'h-9 px-3 text-sm', md: 'h-11 px-4 text-sm', lg: 'h-12 px-5 text-base', icon: 'size-11' },
+    },
+    defaultVariants: { variant: 'secondary', size: 'md' },
+  },
+)
+export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants>>(
+  ({ className, variant, size, type = 'button', ...p }, ref) => <button ref={ref} type={type} className={cn(buttonVariants({ variant, size }), className)} {...p} />,
+)
+Button.displayName = 'Button'
+
+export const Card = ({ className, ...p }: HTMLAttributes<HTMLDivElement>) => <div className={cn('rounded-xl border border-border bg-surface', className)} {...p} />
+
+const field = 'w-full rounded-lg border border-border bg-surface px-3 text-base sm:text-sm text-fg placeholder:text-muted/70 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 h-11'
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(({ className, ...p }, ref) => <input ref={ref} className={cn(field, className)} {...p} />)
+Input.displayName = 'Input'
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(({ className, ...p }, ref) => <select ref={ref} className={cn(field, 'pr-8', className)} {...p} />)
+Select.displayName = 'Select'
+
+export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
+  return (
+    <label className={cn('block min-w-0', className)}>
+      <span className="mb-1.5 block text-sm font-medium">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
+    </label>
+  )
+}
+
+export const badge = cva('inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap', {
+  variants: { tone: { neutral: 'bg-surface-2 text-muted', accent: 'bg-accent-soft text-accent', success: 'bg-success-soft text-success', warning: 'bg-warning-soft text-warning', danger: 'bg-danger-soft text-danger' } },
+  defaultVariants: { tone: 'neutral' },
+})
+export const Badge = ({ className, tone, ...p }: HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badge>) => <span className={cn(badge({ tone }), className)} {...p} />
+
+export function Callout({ tone = 'info', title, children }: { tone?: 'info' | 'warning'; title?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className={cn('flex gap-3 rounded-xl border p-3.5 text-sm', tone === 'warning' ? 'border-warning/30 bg-warning-soft' : 'border-accent/20 bg-accent-soft')}>
+      {tone === 'warning' ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" /> : <Info className="mt-0.5 size-4 shrink-0 text-accent" />}
+      <div className="min-w-0">{title && <p className="font-semibold">{title}</p>}{children && <div className="text-fg/80">{children}</div>}</div>
+    </div>
+  )
+}
+
+export function PageTitle({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div><h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>{subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}</div>
+      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+    </div>
+  )
+}
+
+export function Tabs<T extends string>({ items, value, onChange }: { items: { value: T; label: ReactNode; count?: number }[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+      {items.map((it) => (
+        <button key={it.value} role="tab" aria-selected={value === it.value} onClick={() => onChange(it.value)}
+          className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium text-muted hover:text-fg', value === it.value && 'bg-fg text-bg hover:text-bg')}>
+          {it.label}{it.count !== undefined && <span className="tabular text-xs opacity-70">{it.count}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function Empty({ icon, title, text, action }: { icon?: ReactNode; title: string; text?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center rounded-xl border border-dashed border-border px-6 py-12 text-center">
+      {icon && <div className="mb-3 text-muted [&_svg]:size-8">{icon}</div>}
+      <p className="font-semibold">{title}</p>{text && <p className="mt-1 max-w-sm text-sm text-muted">{text}</p>}{action && <div className="mt-4">{action}</div>}
+    </div>
+  )
+}
