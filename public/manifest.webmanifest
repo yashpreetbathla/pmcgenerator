@@ -1,0 +1,15 @@
+{
+  "name": "PMC Generator",
+  "short_name": "PMC Gen",
+  "description": "Build or read FANUC PMC ladders in your browser. Files never leave your device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F8F9FB",
+  "theme_color": "#17191C",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "favicon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

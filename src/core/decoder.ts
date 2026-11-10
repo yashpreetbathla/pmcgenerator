@@ -139,14 +139,15 @@ export function decodePmcBackup(buf: ArrayBuffer | Uint8Array, fileName = 'backu
       cur.push(ins); count++
       if (name === 'END1' || name === 'END2' || name === 'END3' || name === 'END') {
         flush(); level = name === 'END1' ? 2 : name === 'END2' ? 3 : level
-      } else { flush() } // functional instructions terminate a net
+      }
+      // A functional instruction's output coil (WRT) stays in the same net; the next RD/RD.NOT starts a new one.
       newNet = true
       if (name === 'END') break
       continue
     }
     const op = BASIC[b3 & 0xfc]
     if (!op) { unknownWords++; o += 4; continue }
-    if (op === 'RD' && newNet) flush()
+    if ((op === 'RD' || op === 'RD.NOT') && newNet) flush()
     newNet = op === 'WRT' || op === 'WRT.NOT' || op === 'SET' || op === 'RST'
     cur.push(op === 'AND.STK' || op === 'OR.STK' ? { kind: 'basic', op, offset: o } : { kind: 'basic', op, address: fmtAddr(area, lo, true, true), offset: o })
     count++; o += 4

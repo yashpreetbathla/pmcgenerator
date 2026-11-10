@@ -1,6 +1,18 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { PmcProject } from '@/core/types'
+import { toast } from 'sonner'
+
+/** localStorage wrapper that reports quota errors instead of silently losing data. */
+const safeStorage = {
+  getItem: (k: string) => localStorage.getItem(k),
+  setItem: (k: string, v: string) => {
+    try { localStorage.setItem(k, v) } catch {
+      toast.error('Device storage is full', { description: 'Export or delete older projects in My Projects, then try again.' })
+    }
+  },
+  removeItem: (k: string) => localStorage.removeItem(k),
+}
 
 /**
  * Projects saved on THIS device (localStorage). Decoded backups and generated drafts both live here.
@@ -26,7 +38,7 @@ export const useProjects = create<ProjectsState>()(
       setActive: (activeId) => set({ activeId }),
       setTheme: (theme) => set({ theme }),
     }),
-    { name: 'pmcgenerator-projects', storage: createJSONStorage(() => localStorage) },
+    { name: 'pmcgenerator-projects', storage: createJSONStorage(() => safeStorage) },
   ),
 )
 
