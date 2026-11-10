@@ -17,6 +17,52 @@ import { cardUsage, PinTable } from './PinTable'
 const nextId = (ms: IoModuleInst[]) => `m${ms.reduce((m, x) => Math.max(m, Number(x.id.slice(1)) || 0), 0) + 1}`
 const range = (a: number, n: number, l: string) => (n > 0 ? `${l}${a}–${l}${a + n - 1}` : '—')
 
+
+/** Renumber I/O Link groups 0..n keeping chain order (cards sharing a group keep sharing). */
+function compactGroups(ms: IoModuleInst[]): IoModuleInst[] {
+  const order = [...new Set(ms.map((x) => x.group ?? 0))].sort((a, b) => a - b)
+  return ms.map((x) => ({ ...x, group: order.indexOf(x.group ?? 0) }))
+}
+/** Make one card the I/O Link master (group 0); everything else moves down one place in the chain. */
+export function setMaster(ms: IoModuleInst[], id: string): IoModuleInst[] {
+  const shifted = ms.map((x) => (x.id === id ? { ...x, group: -1 } : x))
+  return compactGroups(shifted)
+}
+/** Make a card a slave: move it to the end of the chain (the next card becomes master if it was master). */
+export function setSlave(ms: IoModuleInst[], id: string): IoModuleInst[] {
+  const max = Math.max(...ms.map((x) => x.group ?? 0))
+  return compactGroups(ms.map((x) => (x.id === id ? { ...x, group: max + 1 } : x)))
+}
+
+function ChainEditor({ m }: { m: CardsModel }) {
+  const mods = [...m.config.modules].sort((a, b) => (a.group ?? 0) - (b.group ?? 0))
+  if (mods.length < 2) return null
+  return (
+    <Card className="mb-4 p-3">
+      <p className="text-sm font-semibold">I/O Link chain — choose the master</p>
+      <p className="mt-0.5 text-xs text-muted">The master is the first I/O unit on the cable from the CNC (group 0). The rest are slaves (group 1, 2…) in cable order.</p>
+      <div className="mt-3 space-y-2">
+        {mods.map((card) => {
+          const master = (card.group ?? 0) === 0
+          return (
+            <div key={card.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2">
+              <Badge tone={master ? 'accent' : 'neutral'}>Group {card.group ?? 0}</Badge>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{card.name} <span className="font-normal text-muted">· {cardTemplateById(card.templateId)?.short ?? 'card'}</span></span>
+              <div role="radiogroup" aria-label={`${card.name} role`} className="flex rounded-lg bg-surface-2 p-0.5">
+                {(['master', 'slave'] as const).map((r) => (
+                  <button key={r} type="button" role="radio" aria-checked={(r === 'master') === master}
+                    onClick={() => m.update((c) => ({ ...c, modules: r === 'master' ? setMaster(c.modules, card.id) : setSlave(c.modules, card.id) }))}
+                    className={cn('h-10 rounded-md px-3 text-sm font-medium capitalize text-muted sm:h-8', (r === 'master') === master && 'bg-bezel text-bezel-fg')}>{r}</button>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
 function CardSettings({ card, onChange }: { card: IoModuleInst; onChange: (p: Partial<IoModuleInst>) => void }) {
   const t = cardTemplateById(card.templateId)
   return (
@@ -178,6 +224,8 @@ export function StepCards() {
       ) : (
         <div className="mb-4"><Callout title={`${mods.length} I/O card${mods.length > 1 ? 's' : ''} · ${pinned} pin${pinned === 1 ? '' : 's'} assigned`}>No overlapping addresses. Typical pin layouts — verify against the FANUC connection manual for your module.</Callout></div>
       )}
+
+      <ChainEditor m={m} />
 
       <div className="space-y-5">
         {groups.map((gr) => (
