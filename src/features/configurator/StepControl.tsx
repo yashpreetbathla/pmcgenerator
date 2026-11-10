@@ -64,7 +64,14 @@ export function StepControl() {
           )}
           <Field label="PMC type" hint={pmc.note}>
             <Select value={config.pmcId} onChange={(e) => update((c) => ({ ...c, pmcId: e.target.value }))}>
-              {pmcChoices.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {pmcChoices.length > 0 && pmcChoices.length < PMC_TYPES.length && (
+                <optgroup label={`Recommended for ${ctl?.name ?? 'this control'}`}>
+                  {pmcChoices.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </optgroup>
+              )}
+              <optgroup label={pmcChoices.length < PMC_TYPES.length ? 'All other PMC types (verify compatibility)' : 'All PMC types'}>
+                {PMC_TYPES.filter((p) => pmcChoices.length === PMC_TYPES.length || !pmcChoices.includes(p)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </optgroup>
             </Select>
           </Field>
         </div>
