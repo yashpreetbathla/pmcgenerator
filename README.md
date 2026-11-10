@@ -141,7 +141,18 @@ Tap any address in the ladder to see its symbol, comment and where-used list.
 
 - **Auto-save on this device.** Every opened backup and generated draft is saved in the browser (localStorage) under **My Projects**.
 - **My Projects:** open, rename, duplicate, delete, **export** as `*.pmcproj.json`, and **import** one or more project files. There's a storage bar showing the ~5 MB browser limit, and a clear message if storage is full.
-- **Export from a project:** Symbol Comment CSV, Message CSV, LADDER-III-style mnemonic list (`.txt`, one instruction per line with net and level separators), and project JSON.
+- **Export from a project:** **PMC (memory card) `.000`** binary, Symbol Comment CSV, Message CSV, LADDER-III-style mnemonic list (`.txt`, one instruction per line with net and level separators), and project JSON.
+
+### PMC binary export (`.000`)
+
+**Project → Export → PMC (memory card) .000** writes a FANUC memory-card PMC file (FANUCROM, 0i-D PMC/L layout) to open in **FANUC LADDER-III** (File → Import, memory-card format).
+
+| Project | Result |
+| --- | --- |
+| Decoded backup, unchanged | **Exact copy.** Byte-identical to the original file (verified by a round-trip test on a real 131,200-byte backup) |
+| Decoded backup after edits, or a generated draft | **Experimental.** All sections (title, memory map, messages, Symbol Comment, ladder code, header pointers) are written, but a 68-byte header block (likely a scrambled signature or password) and the I/O Link assignment tables can't be generated yet, so LADDER-III may reject the file |
+
+If LADDER-III rejects an exported file, please open an issue with the exact error message. A second backup of the same machine type (e.g. with and without a password) would help crack the remaining block.
 - **On phones**, export opens the **native Share sheet** (Files, Google Drive, WhatsApp, email…). On desktop it downloads the file.
 - **Install like an app:** use "Add to Home Screen" (web app manifest included).
 
@@ -216,6 +227,8 @@ src/
     generator.ts        Build PMC config → PmcProject (deterministic draft)
     ladderTree.ts       stack instructions → series/parallel tree for drawing
     crossref.ts         where-used index
+    encoder.ts          PmcProject → FANUC memory-card .000 binary
+    pmcLayout.ts        binary layout constants, memory map rules, passthrough capture
     export.ts           CSV / mnemonic / JSON export
     subs.ts             functional instruction (SUB n) names
   data/
@@ -271,12 +284,16 @@ If your backup doesn't open or looks wrong, open an issue and share a sample if 
 | Functional instruction | Top bit `0x80`: second byte = word count including the header, low 16 bits = SUB number. Parameter words follow (numbers or encoded addresses). The `0xC0–0xC3` form has no parameter words (COM, COME, JMPE, END) |
 | CODB / COD tables | 2-byte table entries follow the parameters, padded to 32-bit words |
 | Levels | `SUB1 END1` → Level 2 → `SUB2 END2` → `SUB64 END` |
+| Header pointers | Section starts and ends, record counts and text lengths, measured from 0x180 (e.g. symbol section end, comment text length, Level 1 size, code end). Sections are rounded up to 1 KiB |
+| Level 1 vs Level 2 reads | Level 1 reads X / F / M directly; Level 2 reads them through the V / U / W mirror areas |
+| Still unknown | 68 bytes at `0x22C–0x26F` (scrambled: the 3rd 16-byte group = 1st XOR `0x0B`) and the I/O Link assignment tables at `0x9AC–0xBAF` |
 
 ---
 
 ## Known limitations
 
 - Only the 0i-D PMC/L backup layout is verified. Other PMC types need sample files.
+- PMC `.000` export is exact only for unchanged decoded backups. Edited or generated files are experimental until the 68-byte header block is understood. 0i-F / 0i-F Plus drafts are written in the 0i-D PMC/L layout.
 - Generated ladders are drafts. ATC / APC / turret sequences are simplified, and multi-path machines only get path-2 E-stop and feed hold automatically.
 - Some functional-instruction format codes and timer limits must be checked against the FANUC manual for your PMC type.
 - Projects live in browser storage (~5 MB). Export large projects to keep them safe.
