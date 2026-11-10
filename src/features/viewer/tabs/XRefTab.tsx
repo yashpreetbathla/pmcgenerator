@@ -34,7 +34,7 @@ export function XRefTab({ idx, address, onAddress, onJump }: { idx: ProjectIndex
           {suggestions.map((s) => (
             <button key={s.address} type="button" onClick={() => { setQ(s.address); onAddress(s.address) }} className="flex min-h-11 w-full items-baseline gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2">
               <span className="w-16 shrink-0 font-mono font-medium">{s.address}</span>
-              <span className="w-28 shrink-0 truncate font-mono text-accent">{s.symbol}</span>
+              <span className="w-28 shrink-0 truncate font-mono text-link">{s.symbol}</span>
               <span className="min-w-0 flex-1 truncate text-muted">{s.comment}</span>
             </button>
           ))}
@@ -46,7 +46,7 @@ export function XRefTab({ idx, address, onAddress, onJump }: { idx: ProjectIndex
         <Card className="p-4">
           <div className="mb-3">
             <p className="font-mono text-xl font-semibold">{selected}</p>
-            {sym?.symbol && <p className="font-mono text-accent">{sym.symbol}</p>}
+            {sym?.symbol && <p className="font-mono text-link">{sym.symbol}</p>}
             {sym?.comment && <p className="text-sm text-muted">{sym.comment}</p>}
             {parseAddress(selected)?.bit === undefined && <p className="mt-1 text-xs text-muted">Byte address — includes every bit of {selected}.</p>}
           </div>

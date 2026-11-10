@@ -55,8 +55,8 @@ export default function BuildPage() {
             <li key={s} className="min-w-0 flex-1">
               <button onClick={() => setStep(i)} aria-current={i === step ? 'step' : undefined}
                 className={cn('flex h-11 w-full items-center gap-2 rounded-lg border px-3 text-left text-sm font-medium transition-colors',
-                  i === step ? 'border-accent bg-accent-soft text-accent' : i < step ? 'border-border bg-surface text-fg hover:bg-surface-2' : 'border-border bg-surface text-muted hover:bg-surface-2')}>
-                <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] tabular', i < step ? 'bg-accent text-white' : i === step ? 'bg-accent text-white' : 'bg-surface-2')}>
+                  i === step ? 'border-accent bg-accent-soft text-link' : i < step ? 'border-border bg-surface text-fg hover:bg-surface-2' : 'border-border bg-surface text-muted hover:bg-surface-2')}>
+                <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] tabular', i < step ? 'bg-accent text-on-accent' : i === step ? 'bg-accent text-on-accent' : 'bg-surface-2')}>
                   {i < step ? <Check className="size-3" strokeWidth={3} /> : i + 1}
                 </span>
                 <span className="truncate">{s}</span>

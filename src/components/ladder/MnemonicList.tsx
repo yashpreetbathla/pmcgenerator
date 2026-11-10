@@ -8,7 +8,7 @@ function Addr({ a }: { a: string }) {
   const s = lookup(a)
   return (
     <button type="button" onClick={() => onAddress?.(a)} title={s?.comment || undefined}
-      className={cn('flex min-w-0 items-baseline gap-2 rounded text-left hover:text-accent', isHit?.(a) && 'bg-fanuc/50')}>
+      className={cn('flex min-w-0 items-baseline gap-2 rounded text-left hover:text-link', isHit?.(a) && 'bg-fanuc/50')}>
       <span className="w-16 shrink-0 font-mono">{a}</span>
       <span className="truncate font-mono text-muted">{s?.symbol}</span>
       {s?.comment && <span className="hidden truncate text-xs text-muted/80 sm:inline">{s.comment}</span>}
@@ -35,7 +35,7 @@ export const MnemonicList = memo(function MnemonicList({ instructions }: { instr
             <div className="flex items-baseline gap-3">
               <span className="w-8 shrink-0 text-right font-mono text-[11px] text-muted tabular">{i + 1}</span>
               <span className="w-24 shrink-0 font-mono font-semibold">SUB {ins.sub}</span>
-              <span className="font-mono font-semibold text-accent">{ins.name}</span>
+              <span className="font-mono font-semibold text-link">{ins.name}</span>
             </div>
             {ins.params.map((p, k) => (
               <div key={k} className="flex min-w-0 items-baseline gap-3">

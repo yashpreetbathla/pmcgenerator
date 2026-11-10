@@ -150,7 +150,7 @@ function ProjectRow({ p, onRename, onExport, onDuplicate, onDelete }: {
             ) : (
               <Link to={`/project/${p.id}`} className="group block min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="truncate text-base font-semibold group-hover:text-accent">{p.name || 'Untitled'}</span>
+                  <span className="truncate text-base font-semibold group-hover:text-link">{p.name || 'Untitled'}</span>
                   <OriginBadge origin={p.origin} />
                 </div>
                 <p className="mt-0.5 truncate text-sm text-muted">{projectType(p)}</p>

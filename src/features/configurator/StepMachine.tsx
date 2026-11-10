@@ -41,7 +41,7 @@ export function StepMachine() {
           return (
             <button key={m.id} type="button" onClick={() => pick(m.id)} aria-pressed={on}
               className={cn('flex min-h-32 flex-col items-start rounded-xl border bg-surface p-3.5 text-left transition-colors hover:border-accent/50', on ? 'border-accent bg-accent-soft/60 ring-1 ring-accent/30' : 'border-border')}>
-              <span className={cn('mb-3 flex size-10 items-center justify-center rounded-lg', on ? 'bg-accent text-white' : 'bg-surface-2 text-fg')}><Icon className="size-5" /></span>
+              <span className={cn('mb-3 flex size-10 items-center justify-center rounded-lg', on ? 'bg-accent text-on-accent' : 'bg-surface-2 text-fg')}><Icon className="size-5" /></span>
               <span className="font-semibold leading-tight">{m.name}</span>
               <span className="mt-1 line-clamp-2 text-xs text-muted">{m.desc}</span>
             </button>

@@ -27,7 +27,7 @@ function AddressCell({ address, children, wide }: { address: string; children: R
       <span className={WIRE} />
       <span className={cn('absolute inset-x-0.5 top-0 truncate rounded px-0.5 font-mono text-[11px] font-medium leading-[18px] text-fg', hit && 'bg-fanuc/50')}>{address}</span>
       <span className="absolute left-1/2 top-[18px] -translate-x-1/2">{children}</span>
-      <span className="absolute inset-x-0.5 bottom-0 truncate font-mono text-[10px] leading-[18px] text-muted group-hover:text-accent">{sym?.symbol || ' '}</span>
+      <span className="absolute inset-x-0.5 bottom-0 truncate font-mono text-[10px] leading-[18px] text-muted group-hover:text-link">{sym?.symbol || ' '}</span>
     </button>
   )
 }
@@ -115,7 +115,7 @@ function ParamValue({ value }: { value: number | string }) {
     const sym = lookup(value)
     return (
       <button type="button" onClick={() => onAddress?.(value)} title={[value, sym?.symbol, sym?.comment].filter(Boolean).join(' — ')}
-        className={cn('min-w-0 truncate rounded text-left font-mono text-[11px] hover:text-accent', isHit?.(value) && 'bg-fanuc/50')}>
+        className={cn('min-w-0 truncate rounded text-left font-mono text-[11px] hover:text-link', isHit?.(value) && 'bg-fanuc/50')}>
         {value}{sym?.symbol && <span className="ml-1 text-muted">{sym.symbol}</span>}
       </button>
     )
@@ -146,7 +146,7 @@ function FuncBox({ ins, tall }: { ins: FunctionalInstruction; tall?: boolean }) 
       )}
       {ins.table && ins.table.length > 0 && (
         <div className="mt-1 border-t border-border pt-1">
-          <button type="button" onClick={() => setOpen(!open)} className="flex h-7 w-full items-center justify-between text-[11px] font-medium text-accent">
+          <button type="button" onClick={() => setOpen(!open)} className="flex h-7 w-full items-center justify-between text-[11px] font-medium text-link">
             Table · {ins.table.length} {ins.table.length === 1 ? 'entry' : 'entries'}
             <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
           </button>

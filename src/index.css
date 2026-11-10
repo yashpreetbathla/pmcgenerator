@@ -1,26 +1,46 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --color-bg: #F8F9FB; --color-surface: #FFFFFF; --color-surface-2: #F2F4F7;
-  --color-fg: #17191C; --color-muted: #6B7280; --color-border: #E6E8EC;
-  --color-accent: #2563EB; --color-accent-soft: #EAF0FD;
-  --color-fanuc: #FACC15;
-  --color-success: #15803D; --color-success-soft: #EAF6EE;
-  --color-warning: #B45309; --color-warning-soft: #FDF4E3;
-  --color-danger: #DC2626; --color-danger-soft: #FDECEC;
-  --color-rung: #0F172A; --color-contact-on: #16A34A;
+  --font-sans: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Barlow Semi Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Machine panel: cool grey face, charcoal bezel, FANUC yellow pushbuttons */
+  --color-bg: #ECEEED;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #E3E6E5;
+  --color-fg: #1C1F22;
+  --color-muted: #5E666D;
+  --color-border: #D3D8D6;
+  --color-bezel: #24282C;
+  --color-bezel-2: #33383D;
+  --color-bezel-fg: #E8EAEA;
+  --color-accent: #FFC20E;
+  --color-on-accent: #1C1F22;
+  --color-accent-soft: #FFF4CC;
+  --color-link: #8A6400;
+  --color-fanuc: #FFC20E;
+  --color-success: #1E7F48; --color-success-soft: #E3F3EA;
+  --color-warning: #9A5B00; --color-warning-soft: #FCF0D9;
+  --color-danger: #D2321F; --color-danger-soft: #FBE7E4;
+  --color-rung: #1C1F22; --color-contact-on: #1E9E57;
+
+  --radius-lg: 6px;
+  --radius-xl: 8px;
 }
 .dark {
-  --color-bg: #0E1014; --color-surface: #15181E; --color-surface-2: #1C2028;
-  --color-fg: #E7E9ED; --color-muted: #8C93A0; --color-border: #272B34;
-  --color-accent-soft: #172447; --color-success-soft: #10291A; --color-warning-soft: #2E2210; --color-danger-soft: #2F1414;
-  --color-rung: #E2E8F0;
+  --color-bg: #15181B; --color-surface: #1D2125; --color-surface-2: #262B30;
+  --color-fg: #E8EAEA; --color-muted: #9AA2A9; --color-border: #343A40;
+  --color-bezel: #0F1113; --color-bezel-2: #1D2125;
+  --color-accent-soft: #3A3010; --color-link: #FFC845;
+  --color-success-soft: #12301F; --color-warning-soft: #33260C; --color-danger-soft: #3A1612;
+  --color-rung: #E8EAEA;
 }
+h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.005em; }
+::selection { background: #FFE07A; color: #1C1F22; }
 html, body, #root { min-height: 100%; }
 body { @apply bg-bg text-fg font-sans antialiased; font-size: 15px; -webkit-tap-highlight-color: transparent; }
 @layer base { *, ::before, ::after { border-color: var(--color-border); } }
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
 .tabular { font-variant-numeric: tabular-nums; }
 .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0px); }

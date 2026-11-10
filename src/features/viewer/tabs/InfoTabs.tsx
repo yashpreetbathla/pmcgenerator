@@ -22,13 +22,13 @@ export function TitleTab({ p }: { p: PmcProject }) {
         <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
           {rows.map(([k, v]) => (
             <div key={k} className="min-w-0">
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted">{k}</dt>
+              <dt className="text-xs font-medium text-muted">{k}</dt>
               <dd className={cn('mt-0.5 break-words', !v && 'text-muted')}>{v || '—'}</dd>
             </div>
           ))}
         </dl>
         <div className="mt-4 border-t border-border pt-3">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted">Memo</dt>
+          <dt className="text-xs font-medium text-muted">Memo</dt>
           <dd className={cn('mt-0.5 whitespace-pre-wrap break-words text-sm', !i.memo && 'text-muted')}>{i.memo || '—'}</dd>
         </div>
       </Card>
@@ -80,7 +80,7 @@ export function SymbolsTab({ p, idx, onAddress }: { p: PmcProject; idx: ProjectI
                 <button type="button" onClick={() => onAddress(s.address)} className="w-full rounded-xl border border-border bg-surface p-3 text-left active:bg-surface-2">
                   <div className="flex items-baseline gap-2">
                     <span className="font-mono font-semibold">{s.address}</span>
-                    <span className="min-w-0 truncate font-mono text-sm text-accent">{s.symbol}</span>
+                    <span className="min-w-0 truncate font-mono text-sm text-link">{s.symbol}</span>
                     {!idx.used.has(s.address) && <Badge className="ml-auto">unused</Badge>}
                   </div>
                   {s.comment && <p className="mt-1 text-sm text-muted">{s.comment}</p>}
@@ -91,14 +91,14 @@ export function SymbolsTab({ p, idx, onAddress }: { p: PmcProject; idx: ProjectI
           {/* desktop: table */}
           <Card className="hidden overflow-hidden md:block">
             <table className="w-full table-fixed text-sm">
-              <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-muted">
+              <thead className="bg-surface-2 text-left text-xs font-semibold text-muted">
                 <tr><th className="w-28 px-3 py-2 font-medium">Address</th><th className="w-44 px-3 py-2 font-medium">Symbol</th><th className="px-3 py-2 font-medium">Comment</th><th className="w-20 px-3 py-2" /></tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {shown.map((s) => (
                   <tr key={s.address} onClick={() => onAddress(s.address)} className="cursor-pointer hover:bg-surface-2">
                     <td className="px-3 py-2 font-mono font-medium">{s.address}</td>
-                    <td className="truncate px-3 py-2 font-mono text-accent">{s.symbol}</td>
+                    <td className="truncate px-3 py-2 font-mono text-link">{s.symbol}</td>
                     <td className="px-3 py-2 text-muted">{s.comment}</td>
                     <td className="px-3 py-2 text-right">{!idx.used.has(s.address) && <Badge>unused</Badge>}</td>
                   </tr>
@@ -161,7 +161,7 @@ export function ParamsTab({ p }: { p: PmcProject }) {
     <div className="space-y-3">
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-muted">
+          <thead className="bg-surface-2 text-left text-xs font-semibold text-muted">
             <tr><th className="px-3 py-2 font-medium">Area</th><th className="px-3 py-2 font-medium">Range</th><th className="px-3 py-2 text-right font-medium">Bytes</th><th className="hidden px-3 py-2 font-medium sm:table-cell">Use</th></tr>
           </thead>
           <tbody className="divide-y divide-border">

@@ -54,7 +54,7 @@ export function IoMapTab({ p, idx, onAddress }: { p: PmcProject; idx: ProjectInd
                       className={cn('flex h-12 min-w-0 flex-col items-center justify-center rounded-md border px-0.5 text-center',
                         s ? 'border-accent/40! bg-accent-soft' : used ? 'border-border bg-surface-2' : 'border-dashed border-border text-muted')}>
                       <span className="text-[10px] leading-none text-muted">{bit}</span>
-                      <span className={cn('mt-1 w-full truncate font-mono text-[10px] leading-none', s && 'font-semibold text-accent')}>{s?.symbol || (used ? '•' : '')}</span>
+                      <span className={cn('mt-1 w-full truncate font-mono text-[10px] leading-none', s && 'font-semibold text-link')}>{s?.symbol || (used ? '•' : '')}</span>
                     </button>
                   )
                 })}

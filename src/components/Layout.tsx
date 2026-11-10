@@ -17,8 +17,8 @@ export function Logo() {
   return (
     <Link to="/" className="flex items-center gap-2">
       <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-7" />
-      <span className="font-semibold tracking-tight">PMC Generator</span>
-      <span className="hidden rounded bg-fanuc/25 px-1.5 py-0.5 text-[10px] font-semibold text-fg sm:inline">FANUC</span>
+      <span className="font-display text-lg font-bold">PMC Generator</span>
+      <span className="hidden rounded-sm bg-fanuc px-1.5 py-0.5 text-[11px] font-bold text-on-accent sm:inline">FANUC</span>
     </Link>
   )
 }
@@ -28,15 +28,15 @@ export function Layout() {
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark') }, [theme])
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
+      <header className="sticky top-0 z-30 bg-bezel text-bezel-fg shadow-[inset_0_-3px_0_var(--color-fanuc)]">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
           <Logo />
           <nav className="ml-4 hidden flex-1 gap-1 md:flex" aria-label="Main">
             {NAV.map(({ to, label }) => (
-              <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('rounded-lg px-3 py-2 text-sm font-medium text-muted hover:text-fg', isActive && 'bg-surface-2 text-fg')}>{label}</NavLink>
+              <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('rounded-md px-3 py-2 text-sm font-medium text-bezel-fg/70 hover:text-bezel-fg', isActive && 'bg-bezel-2 text-fanuc')}>{label}</NavLink>
             ))}
           </nav>
-          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="ml-auto flex size-11 items-center justify-center rounded-lg hover:bg-surface-2" aria-label="Toggle dark mode">
+          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="ml-auto flex size-11 items-center justify-center rounded-md text-bezel-fg hover:bg-bezel-2" aria-label="Toggle dark mode">
             {theme === 'dark' ? <Sun className="size-5" /> : <Moon className="size-5" />}
           </button>
         </div>
@@ -45,10 +45,10 @@ export function Layout() {
         <Suspense fallback={<div className="py-20 text-center text-muted">Loading…</div>}><Outlet /></Suspense>
       </main>
       {/* Phone/tablet bottom bar */}
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur md:hidden" aria-label="Main">
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 bg-bezel text-bezel-fg md:hidden" aria-label="Main">
         <div className="grid grid-cols-5">
           {NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium text-muted', isActive && 'text-accent')}>
+            <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium text-bezel-fg/60', isActive && 'text-fanuc')}>
               <Icon className="size-5" /><span className="truncate">{label.replace('Open Backup', 'Open').replace('Build PMC', 'Build').replace('My Projects', 'Projects')}</span>
             </NavLink>
           ))}

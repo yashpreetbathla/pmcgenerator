@@ -26,7 +26,7 @@ export function Chips<T extends string>({ items, value, onChange }: { items: { v
       {items.map((it) => (
         <button key={it.value} type="button" onClick={() => onChange(it.value)} aria-pressed={value === it.value}
           className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 text-sm font-medium text-muted hover:text-fg',
-            value === it.value && 'border-accent! bg-accent-soft text-accent hover:text-accent')}>
+            value === it.value && 'border-accent! bg-accent-soft text-link hover:text-link')}>
           {it.label}{it.count !== undefined && <span className="tabular text-xs opacity-70">{it.count}</span>}
         </button>
       ))}
@@ -44,7 +44,7 @@ export function RefList({ refs, idx, onJump, limit }: { refs: XRef[]; idx: Proje
     <div className="space-y-4">
       {(['coil', 'contact', 'param'] as const).filter((k) => g[k].length).map((k) => (
         <section key={k}>
-          <h4 className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+          <h4 className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-muted">
             <Badge tone={ROLE[k].tone}>{ROLE[k].label}</Badge><span className="tabular">{g[k].length}</span>
           </h4>
           <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -86,7 +86,7 @@ export function AddressSheet({ address, idx, onClose, onJump, onXref }: { addres
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <p className="font-mono text-2xl font-semibold">{address}</p>
-            {sym?.symbol ? <p className="font-mono text-accent">{sym.symbol}</p> : <p className="text-sm text-muted">No symbol defined</p>}
+            {sym?.symbol ? <p className="font-mono text-link">{sym.symbol}</p> : <p className="text-sm text-muted">No symbol defined</p>}
             {sym?.comment && <p className="mt-1 text-sm">{sym.comment}</p>}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X /></Button>

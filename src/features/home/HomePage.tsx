@@ -20,10 +20,7 @@ export default function HomePage() {
   return (
     <div className="space-y-8 sm:space-y-10">
       <section className="pt-2 sm:pt-6">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-fanuc/25 px-2.5 py-1 text-xs font-semibold">
-          <span className="size-1.5 rounded-full bg-fg" /> FANUC PMC · LADDER
-        </span>
-        <h1 className="mt-3 max-w-2xl text-2xl font-semibold tracking-tight text-balance sm:text-4xl">
+        <h1 className="max-w-2xl text-3xl font-bold text-balance sm:text-5xl">
           Build or read FANUC PMC ladders — right in your browser
         </h1>
         <p className="mt-2 max-w-xl text-sm text-muted sm:text-base">
@@ -50,7 +47,7 @@ export default function HomePage() {
           onClick={openDemo}
           className="group flex min-h-14 items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-left hover:border-accent hover:bg-accent-soft sm:col-span-2"
         >
-          <PlayCircle className="size-6 shrink-0 text-accent" />
+          <PlayCircle className="size-6 shrink-0 text-link" />
           <span className="min-w-0 flex-1">
             <span className="block font-medium">Try the demo</span>
             <span className="block text-sm text-muted">A small synthetic 2-axis lathe ladder to explore — no file needed.</span>
@@ -63,7 +60,7 @@ export default function HomePage() {
         <section>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="font-semibold">Recent projects</h2>
-            <Link to="/projects" className="flex h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-accent hover:bg-accent-soft">
+            <Link to="/projects" className="flex h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-link hover:bg-accent-soft">
               See all <ArrowRight className="size-4" />
             </Link>
           </div>
@@ -123,10 +120,10 @@ function BigAction({ to, icon, title, text, cta }: { to: string; icon: ReactNode
       className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-sm transition-colors hover:border-accent sm:min-h-52 sm:p-6"
     >
       <span className="absolute inset-x-0 top-0 h-1 bg-fanuc" aria-hidden />
-      <span className="flex size-12 items-center justify-center rounded-xl bg-accent-soft text-accent [&_svg]:size-6">{icon}</span>
+      <span className="flex size-12 items-center justify-center rounded-xl bg-accent-soft text-link [&_svg]:size-6">{icon}</span>
       <span className="mt-4 text-lg font-semibold tracking-tight sm:text-xl">{title}</span>
       <span className="mt-1 text-sm text-muted">{text}</span>
-      <span className="mt-4 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-accent px-5 font-medium text-white shadow-sm group-hover:bg-accent/90 sm:mt-auto sm:self-start">
+      <span className="mt-4 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-accent px-5 font-semibold text-on-accent shadow-sm group-hover:bg-accent/90 sm:mt-auto sm:self-start">
         {cta} <ArrowRight className="size-4" />
       </span>
     </Link>

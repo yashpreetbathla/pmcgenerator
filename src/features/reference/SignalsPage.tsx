@@ -92,7 +92,7 @@ function SignalsTab() {
         </div>
         <div className="flex min-h-11 items-center justify-between text-sm text-muted">
           <span className="tabular">{rows.length} of {STANDARD_SIGNALS.length} signals</span>
-          {filtered && <button onClick={reset} className="h-11 rounded-lg px-3 font-medium text-accent hover:bg-accent-soft">Clear filters</button>}
+          {filtered && <button onClick={reset} className="h-11 rounded-lg px-3 font-medium text-link hover:bg-accent-soft">Clear filters</button>}
         </div>
       </div>
 
@@ -103,7 +103,7 @@ function SignalsTab() {
           {/* Desktop table */}
           <Card className="hidden overflow-hidden md:block">
             <table className="w-full table-fixed text-sm">
-              <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-muted">
+              <thead className="bg-surface-2 text-left text-xs font-semibold text-muted">
                 <tr>
                   <th className="w-24 px-4 py-2.5 font-medium">Address</th>
                   <th className="w-28 px-2 py-2.5 font-medium">Symbol</th>
@@ -150,7 +150,7 @@ function SignalsTab() {
 function Addr({ s }: { s: StandardSignal }) {
   return (
     <span
-      className={cn('tabular inline-flex rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold', s.direction === 'G' ? 'bg-accent-soft text-accent' : 'bg-success-soft text-success')}
+      className={cn('tabular inline-flex rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold', s.direction === 'G' ? 'bg-accent-soft text-link' : 'bg-success-soft text-success')}
       title={s.direction === 'G' ? 'G: PMC → CNC (ladder writes)' : 'F: CNC → PMC (ladder reads)'}
     >
       {s.address}
@@ -202,7 +202,7 @@ function GlossaryTab() {
       ) : (
         groups.map(({ c, items }) => (
           <section key={c}>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{LABEL[c]}</h2>
+            <h2 className="mb-2 text-sm font-semibold text-muted">{LABEL[c]}</h2>
             <div className="grid gap-2 sm:grid-cols-2">
               {items.map((g) => (
                 <div key={g.term} className="rounded-xl border border-border bg-surface p-4">

@@ -117,7 +117,7 @@ export function StepIo() {
 
       {errCount > 0 ? (
         <div className="mb-3"><Callout tone="warning" title={`${errCount} signal${errCount > 1 ? 's need' : ' needs'} attention`}>
-          Duplicate or invalid addresses are highlighted. <button className="font-semibold text-accent underline" onClick={() => setOnlyErr((v) => !v)}>{onlyErr ? 'Show all' : 'Show only problems'}</button>
+          Duplicate or invalid addresses are highlighted. <button className="font-semibold text-link underline" onClick={() => setOnlyErr((v) => !v)}>{onlyErr ? 'Show all' : 'Show only problems'}</button>
         </Callout></div>
       ) : (
         <div className="mb-3"><Callout title="All addresses valid">{nX} inputs and {nY} outputs, no duplicates.</Callout></div>

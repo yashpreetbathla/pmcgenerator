@@ -44,7 +44,7 @@ export function Choice({ selected, onClick, children, className, disabled, title
         className,
       )}
     >
-      <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border', selected ? 'border-accent bg-accent text-white' : 'border-border bg-surface')}>
+      <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border', selected ? 'border-accent bg-accent text-on-accent' : 'border-border bg-surface')}>
         {selected && <Check className="size-3.5" strokeWidth={3} />}
       </span>
       <span className="min-w-0 flex-1">{children}</span>

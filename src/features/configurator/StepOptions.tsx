@@ -46,7 +46,7 @@ export function StepOptions() {
           return (
             <section key={group}>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold tracking-wide text-muted uppercase">{group} <span className="tabular font-normal">· {n}/{items.length}</span></h3>
+                <h3 className="text-sm font-semibold text-muted">{group} <span className="tabular font-normal">· {n}/{items.length}</span></h3>
                 <Button size="sm" variant="ghost" className="h-11 sm:h-9" onClick={() => setGroup(items, !all)}>{all ? 'Clear group' : 'Select all in group'}</Button>
               </div>
               <div className="grid gap-2 lg:grid-cols-2">
